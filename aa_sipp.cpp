@@ -171,8 +171,9 @@ void AA_SIPP::initStates(int numOfCurAgent, const cMap &Map)
                     states.insert(n);
             }
         }
+    h = (calculateDistanceFromCellToCell(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]));
     n = Node(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,CN_INFINITY);
-    n.best_F = h;
+    n.best_g = h;
     states.expand(n);
 }
 
@@ -193,24 +194,22 @@ bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
     Node curNode(states.getMin());
     Node newNode;
     bool pathFound(false);
-    while(!curNode.expanded)//if expanded => there is no any non-expanded node, i.e. OPEN is empty
+    while(!curNode.expanded && curNode.g < CN_INFINITY)//if expanded => there is no any non-expanded node, i.e. OPEN is empty //if curNode.g=CN_INFINITY => there are only unreachable non-consistent states => path cannot be found
     {
         newNode = curNode;
         newNode.g = constraints.findEAT(newNode, states);
-        if(newNode.g == -1)
-            newNode.g = CN_INFINITY; // to make it invalid
-        newNode.F = newNode.g + newNode.h;
-        if(newNode.F > newNode.best_F || newNode.F >= CN_INFINITY)
+        if(newNode.g > newNode.best_g || newNode.g == CN_INFINITY)
         {
             states.update(newNode, false);
         }
         else
         {
-            newNode.best_F = newNode.F;
+            newNode.best_g = newNode.g;
+            newNode.best_Parent = newNode.Parent;
             states.update(newNode, true);
         }
         curNode = states.getMin();
-        if(newNode.best_F - curNode.F < CN_EPSILON && newNode.best_F < CN_INFINITY)
+        if(newNode.best_g + newNode.h - curNode.F < CN_EPSILON && newNode.best_g < CN_INFINITY)
         {
             states.expand(newNode);
             states.updateNonCons(newNode);
@@ -266,7 +265,7 @@ bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
         resultPath.time = static_cast<double long>(end.QuadPart-begin.QuadPart) / freq.QuadPart;
 #endif
         std::cout<<numOfCurAgent<<" PATH NOT FOUND!\n";
-        sresult.pathfound = false;
+        //sresult.pathfound = false;
         sresult.nodescreated += closeSize;
         sresult.numberofsteps += closeSize;
         resultPath.nodescreated = closeSize;

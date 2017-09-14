@@ -228,7 +228,7 @@ double Constraints::findEAT(const Node &curNode, StatesContainer &states)
     if(EAT < curNode.interval_begin)
         EAT = curNode.interval_begin;
     else if(EAT > curNode.interval_end)
-        return -1;
+        return CN_INFINITY;
     std::vector<section> sections(0);
     section sec;
     std::vector<std::pair<int,int>> cells = findConflictCells(*curNode.Parent, curNode);
@@ -270,14 +270,14 @@ double Constraints::findEAT(const Node &curNode, StatesContainer &states)
         {
             if(badIntervals[i].second > curNodeInterval.second)
             {
-                EAT = -1;
+                EAT = CN_INFINITY;
                 break;
             }
             else if(badIntervals[i].second > EAT)
                 EAT = badIntervals[i].second;
         }
     if(EAT > curNode.Parent->interval_end + dist || curNodeInterval.second < EAT)
-        EAT =-1;
+        EAT = CN_INFINITY;
     /*if(!badIntervals.empty())
         std::cout<<badIntervals[0].first<<" "<<badIntervals[0].second<<"  ";
     std::cout<<"EAT "<<EAT<<"\n";*/

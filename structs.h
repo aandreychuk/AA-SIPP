@@ -40,10 +40,10 @@ struct Node
     double interval_end;
     double interval_begin;
     const Node* best_Parent;
-    double best_F;
+    double best_g;
     std::list<std::pair<const Node*, double>> parents;
     Node(int i=-1, int j=-1, double F=-1, double g=-1, double h=-1, bool expanded=false, double interval_begin=-1, double interval_end=-1, int consistent = 0)
-        :i(i),j(j),F(F),g(g),h(h),interval_begin(interval_begin),interval_end(interval_end),expanded(expanded),Parent(nullptr),consistent(consistent){best_Parent = nullptr; best_F = 2*CN_INFINITY; parents.clear();}
+        :i(i),j(j),F(F),g(g),h(h),interval_begin(interval_begin),interval_end(interval_end),expanded(expanded),Parent(nullptr),consistent(consistent){best_Parent = nullptr; best_g = 2*CN_INFINITY; parents.clear();}
     ~Node(){Parent = nullptr; best_Parent = nullptr;}
 };
 
