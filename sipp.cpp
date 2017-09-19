@@ -13,6 +13,16 @@ SIPP::SIPP(double weight, int metrictype, bool breakingties)
     openSize = 0;
 }
 
+bool SIPP::stopCriterion()
+{
+    if(openSize == 0)
+    {
+        std::cout << "OPEN list is empty!" << std::endl;
+        return true;
+    }
+    return false;
+}
+
 double SIPP::countHValue(int i, int j, int goal_i, int goal_j)
 {
     if(metrictype == CN_MT_DIAGONAL)
@@ -25,7 +35,6 @@ double SIPP::countHValue(int i, int j, int goal_i, int goal_j)
 
 void SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &succs, int numOfCurAgent)
 {
-    succs.clear();
     Node newNode;
     std::vector<std::pair<int,int>> intervals(0);
     std::pair<int,int> interval(-1, -1);
@@ -47,7 +56,6 @@ void SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &
                 else if(i == 1)
                     direction = CN_DOWN_DIR;
                 double h_value = weight*countHValue(newNode.i, newNode.j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
-                newNode.h = h_value;
                 if(ctable[newNode.i][newNode.j].size() != 0)
                 {
                     intervals.clear();
@@ -87,15 +95,14 @@ void SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &
                     }
                     for(int k = 0; k < intervals.size(); k++)
                     {
-                        if(intervals[k].second < curNode.interval_begin + 1)
+                        if(intervals[k].second < curNode.interval.first + 1)
                             continue;
-                        if(intervals[k].first >= curNode.interval_end + 1)
+                        if(intervals[k].first >= curNode.interval.second + 1)
                             continue;
-                        newNode.interval_begin = intervals[k].first;
-                        newNode.interval_end = intervals[k].second;
-                        if(newNode.interval_begin > newNode.g)
-                            newNode.g = newNode.interval_begin;
-                        if(newNode.interval_end < newNode.g)
+                        newNode.interval = intervals[k];
+                        if(newNode.interval.first > newNode.g)
+                            newNode.g = newNode.interval.first;
+                        if(newNode.interval.second < newNode.g)
                             continue;
                         newNode.F = newNode.g + h_value;
                         succs.push_back(newNode);
@@ -103,10 +110,9 @@ void SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &
                 }
                 else
                 {
-                    newNode.interval_begin = newNode.g;
-                    newNode.interval_end = CN_INFINITY;
+                    newNode.interval = {newNode.g, CN_INFINITY};
                     newNode.F = newNode.g + h_value;
-                    if(newNode.interval_begin >= curNode.interval_end + 1)
+                    if(newNode.interval.first >= curNode.interval.second + 1)
                         continue;
                     succs.push_back(newNode);
                 }
@@ -114,6 +120,79 @@ void SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &
         }
     }
 }
+
+Node SIPP::findMin(int size)
+{
+    Node min;
+    min.F = -1;
+    for(int i = 0; i < size; i++)
+    {
+        if(open[i].size() != 0)
+            if(open[i].begin()->F <= min.F || min.F == -1)
+            {
+                if (open[i].begin()->F == min.F)
+                {
+                    if (open[i].begin()->g >= min.g)
+                        min = *open[i].begin();
+                }
+                else
+                    min = *open[i].begin();
+            }
+    }
+    return min;
+}
+
+void SIPP::addOpen(Node &newNode)
+{
+    std::list<Node>::iterator iter, pos;
+    bool posFound = false;
+    pos = open[newNode.i].end();
+    if (open[newNode.i].size() == 0)
+    {
+        open[newNode.i].push_back(newNode);
+        openSize++;
+        return;
+    }
+    for(iter = open[newNode.i].begin(); iter != open[newNode.i].end(); ++iter)
+    {
+        if ((iter->F >= newNode.F) && (!posFound))
+        {
+            if (iter->F == newNode.F)
+            {
+                if ((newNode.g > iter->g && breakingties == CN_BT_G_MAX) || (newNode.g < iter->g && breakingties == CN_BT_G_MIN))
+                {
+                    pos = iter;
+                    posFound = true;
+                }
+            }
+            else
+            {
+                pos = iter;
+                posFound = true;
+            }
+        }
+        if (iter->i == newNode.i && iter->j == newNode.j && iter->interval.first == newNode.interval.first && iter->interval.second == newNode.interval.second)
+        {
+            if(newNode.F >= iter->F)
+                return;
+
+            if(pos == iter)
+            {
+                iter->F = newNode.F;
+                iter->g = newNode.g;
+                iter->interval = newNode.interval;
+                iter->Parent = newNode.Parent;
+                return;
+            }
+            open[newNode.i].erase(iter);
+            openSize--;
+            break;
+        }
+    }
+    openSize++;
+    open[newNode.i].insert(pos, newNode);
+}
+
 
 SearchResult SIPP::startSearch(cLogger *Log, cMap &Map)
 {
@@ -125,7 +204,7 @@ SearchResult SIPP::startSearch(cLogger *Log, cMap &Map)
     QueryPerformanceCounter(&begin);
     QueryPerformanceFrequency(&freq);
 #endif
-    sresult.pathInfo.resize(0);
+    sresult.pathInfo.resize(Map.agents);
     sresult.agents = Map.agents;
     sresult.agentsSolved = 0;
     ctable.resize(Map.height);
@@ -146,6 +225,10 @@ SearchResult SIPP::startSearch(cLogger *Log, cMap &Map)
         Map.removeConstraint(Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
         if(findPath(numOfCurAgent, Map))
             addConstraints();
+        close.clear();
+        for(int i = 0; i < Map.height; i++)
+            open[i].clear();
+        delete [] open;
     }
 
 #ifdef __linux__
@@ -166,7 +249,7 @@ void SIPP::makePrimaryPath(Node curNode)
     hppath.clear();
     std::list<Node> path;
     if(curNode.Parent != NULL)
-    do
+        do
     {
         path.push_front(curNode);
         curNode = *curNode.Parent;
@@ -246,7 +329,7 @@ std::vector<conflict> SIPP::CheckConflicts()
 
 void SIPP::addConstraints()
 {
-    Node cur, parent;
+    Node cur;
     movement add;
     for(int i = 0; i < sresult.pathInfo.back().sections.size() - 1; i++)
     {
@@ -296,16 +379,15 @@ void SIPP::addConstraints()
         }
     }
     cur = sresult.pathInfo.back().sections.back();
-    if(sresult.pathInfo.back().sections.size()>1)
+    if(cur.Parent != NULL)
     {
-        parent = sresult.pathInfo.back().sections[sresult.pathInfo.back().sections.size()-2];
-        if(parent.i - 1 == cur.i)
+        if(cur.Parent->i - 1 == cur.i)
             add.p_dir = CN_DOWN_DIR;
-        else if(parent.i + 1 == cur.i)
+        else if(cur.Parent->i + 1 == cur.i)
             add.p_dir = CN_UP_DIR;
-        else if(parent.j - 1 == cur.j)
+        else if(cur.Parent->j - 1 == cur.j)
             add.p_dir = CN_RIGHT_DIR;
-        else if(parent.j + 1 == cur.j)
+        else if(cur.Parent->j + 1 == cur.j)
             add.p_dir = CN_LEFT_DIR;
         else
             add.p_dir = CN_NO_DIR;
@@ -326,37 +408,51 @@ bool SIPP::findPath(int numOfCurAgent, const cMap &Map)
     QueryPerformanceCounter(&begin);
     QueryPerformanceFrequency(&freq);
 #endif
+    open = new std::list<Node>[Map.height];
+
     ResultPathInfo resultPath;
-    std::list<Node> succs;
+    openSize = 0;
+    closeSize = 0;
+
     Node curNode(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], 0, 0);
-    curNode.F = weight * countHValue(curNode.i, curNode.j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
     curNode.g = 0;
-    curNode.h = curNode.F;
-    curNode.interval_begin = 0;
-    curNode.Parent = NULL;
     if(ctable[curNode.i][curNode.j].size()==0)
-        curNode.interval_end = CN_INFINITY;
+        curNode.interval = {0, CN_INFINITY};
     else
-        curNode.interval_end = ctable[curNode.i][curNode.j][0].g-1;
+        curNode.interval = {0, ctable[curNode.i][curNode.j][0].g-1};
     bool pathFound = false;
-    states.clear();
-    //states.insert_or_update(curNode);
-    while(!curNode.expanded)
+    open[curNode.i].push_back(curNode);
+    openSize++;
+    while(!stopCriterion())
     {
-        curNode = states.getMin();
+        curNode = findMin(Map.height);
+        open[curNode.i].pop_front();
+        openSize--;
+        close.insert({curNode.i * Map.width + curNode.j, curNode});
+        closeSize++;
         if(curNode.i == Map.goal_i[numOfCurAgent] && curNode.j == Map.goal_j[numOfCurAgent])
         {
             pathFound = true;
             break;
         }
+        std::list<Node> succs;
+        succs.clear();
         findSuccessors(curNode, Map, succs, numOfCurAgent);
         std::list<Node>::iterator it = succs.begin();
-        auto parent = states.getParentPtr();
-        //states.expand();
+        auto parent = &(close.find(curNode.i * Map.width + curNode.j)->second);
         while(it != succs.end())
         {
+            bool has = false;
             it->Parent = parent;
-           // states.insert_or_update(*it);
+            auto range = close.equal_range(it->i * Map.width + it->j);
+            for(auto i = range.first; i != range.second; i++)
+                if(i->second.interval.first <= it->interval.first && i->second.interval.second >= it->interval.second)
+                {
+                    has = true;
+                    break;
+                }
+            if(!has)
+                addOpen(*it);
             it++;
         }
     }
@@ -398,7 +494,7 @@ bool SIPP::findPath(int numOfCurAgent, const cMap &Map)
         sresult.pathlength += curNode.g;
         sresult.nodescreated += openSize + closeSize;
         sresult.numberofsteps += closeSize;
-        sresult.pathInfo.push_back(resultPath);
+        sresult.pathInfo[numOfCurAgent] = resultPath;
         sresult.agentsSolved++;
     }
     else
@@ -420,7 +516,7 @@ bool SIPP::findPath(int numOfCurAgent, const cMap &Map)
         sresult.pathfound = false;
         sresult.nodescreated += closeSize;
         sresult.numberofsteps += closeSize;
-        sresult.pathInfo.push_back(resultPath);
+        sresult.pathInfo[numOfCurAgent] = resultPath;
     }
 
     return resultPath.pathfound;

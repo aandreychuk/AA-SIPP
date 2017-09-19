@@ -1,18 +1,79 @@
 #include "aa_sipp.h"
 
 
-AA_SIPP::AA_SIPP(double weight, bool breakingties)
+AA_SIPP::AA_SIPP(double weight, bool breakingties, int constraints_type)
 {
     this->weight = weight;
     this->breakingties = breakingties;
+    this->constraints_type = constraints_type;
     closeSize = 0;
     openSize = 0;
 }
 
 AA_SIPP::~AA_SIPP()
 {
+    delete constraints;
 }
 
+bool AA_SIPP::stopCriterion()
+{
+    if(openSize == 0)
+    {
+        std::cout << "OPEN list is empty! " << std::endl;
+        return true;
+    }
+    return false;
+}
+
+void AA_SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &succs, int numOfCurAgent)
+{
+    Node newNode;
+    std::vector<double> EAT;
+    std::vector<std::pair<double, double>> intervals;
+    double h_value;
+    auto parent = &(close.find(curNode.i*Map.width + curNode.j)->second);
+    for(int i = -1; i <= +1; i++)
+    {
+        for(int j = -1; j <= +1; j++)
+        {
+            //if(((i == 0 && j != 0) || (i != 0 && j == 0)) && Map.CellOnGrid(curNode.i + i, curNode.j + j) && Map.CellIsTraversable(curNode.i + i, curNode.j + j))
+            if((i != 0 || j != 0) && Map.CellOnGrid(curNode.i + i, curNode.j + j) && Map.CellIsTraversable(curNode.i + i, curNode.j + j))
+            {
+                if(i*j != 0)
+                    if(Map.CellIsObstacle(curNode.i, curNode.j + j) || Map.CellIsObstacle(curNode.i + i, curNode.j))
+                        continue;
+                newNode.i = curNode.i + i;
+                newNode.j = curNode.j + j;
+                if(i!=0 && j!=0)
+                    newNode.g = curNode.g + sqrt(2);
+                else
+                    newNode.g = curNode.g + 1.0;
+                newNode.Parent = parent;
+                h_value = weight*calculateDistanceFromCellToCell(newNode.i, newNode.j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
+                intervals = constraints->findIntervals(newNode, EAT, close, Map.width);
+                for(int k = 0; k < intervals.size(); k++)
+                {
+                    newNode.interval = intervals[k];
+                    newNode.g = EAT[k];
+                    newNode.F = newNode.g + h_value;
+                    succs.push_front(newNode);
+                }
+                newNode = resetParent(newNode, curNode, Map);
+                if(newNode.Parent->i != parent->i || newNode.Parent->j != parent->j)
+                {
+                    intervals = constraints->findIntervals(newNode, EAT, close, Map.width);
+                    for(int k = 0; k < intervals.size(); k++)
+                    {
+                        newNode.interval = intervals[k];
+                        newNode.g = EAT[k];
+                        newNode.F = newNode.g + h_value;
+                        succs.push_front(newNode);
+                    }
+                }
+            }
+        }
+    }
+}
 
 bool AA_SIPP::lineOfSight(int i1, int j1, int i2, int j2, const cMap &map)
 {
@@ -96,6 +157,78 @@ double AA_SIPP::calculateDistanceFromCellToCell(double start_i, double start_j, 
     return sqrt(double((start_i - fin_i)*(start_i - fin_i) + (start_j - fin_j)*(start_j - fin_j)));
 }
 
+Node AA_SIPP::findMin(int size)
+{
+    Node min;
+    min.F = std::numeric_limits<float>::max();
+    for(int i = 0; i < size; i++)
+    {
+        if(open[i].size() != 0 && open[i].begin()->F <= min.F)
+        {
+            if (open[i].begin()->F == min.F)
+            {
+                if (open[i].begin()->g >= min.g)
+                    min=*open[i].begin();
+            }
+            else
+                min=*open[i].begin();
+        }
+    }
+    return min;
+}
+
+void AA_SIPP::addOpen(Node &newNode)
+{
+    std::list<Node>::iterator iter, pos;
+    bool posFound = false;
+    pos = open[newNode.i].end();
+    if (open[newNode.i].size() == 0)
+    {
+        open[newNode.i].push_back(newNode);
+        openSize++;
+        return;
+    }
+    for(iter = open[newNode.i].begin(); iter != open[newNode.i].end(); ++iter)
+    {
+        if ((iter->F >= newNode.F) && (!posFound))
+        {
+            if (fabs(iter->F - newNode.F) < CN_EPSILON)//CN_EPSILON is needed to prevent mistakes with comparison of double-type values
+            {
+
+                if ((newNode.g > iter->g && breakingties == CN_BT_G_MAX) || (newNode.g < iter->g && breakingties == CN_BT_G_MIN))
+                {
+                    pos = iter;
+                    posFound = true;
+                }
+            }
+            else
+            {
+                pos = iter;
+                posFound = true;
+            }
+        }
+
+        if (iter->i == newNode.i && iter->j == newNode.j && iter->interval.first == newNode.interval.first)
+        {
+            if(iter->g - newNode.g < CN_EPSILON)
+                return;
+            if(pos == iter)
+            {
+                iter->F = newNode.F;
+                iter->g = newNode.g;
+                iter->interval = newNode.interval;
+                iter->Parent = newNode.Parent;
+                return;
+            }
+            open[newNode.i].erase(iter);
+            openSize--;
+            break;
+        }
+    }
+    openSize++;
+    open[newNode.i].insert(pos, newNode);
+}
+
 SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
 {
 #ifdef __linux__
@@ -106,7 +239,7 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
     QueryPerformanceCounter(&begin);
     QueryPerformanceFrequency(&freq);
 #endif
-    constraints.init(Map.width, Map.height);
+    constraints = new SectionConstraints(Map.width, Map.height);
     sresult.pathInfo.resize(0);
     sresult.agents = Map.agents;
     sresult.agentsSolved = 0;
@@ -117,16 +250,27 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
     }
     for(int numOfCurAgent = 0; numOfCurAgent < Map.agents; numOfCurAgent++)
     {
-        std::cout<<numOfCurAgent<<"\n";
-        for(int i = numOfCurAgent; i < Map.agents; i++)
-        {
-            Map.addConstraint(Map.start_i[i], Map.start_j[i]);
-            Map.addConstraint(Map.goal_i[i], Map.goal_j[i]);
-        }
+
+        ResultPathInfo result;
         Map.removeConstraint(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent]);
         Map.removeConstraint(Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
+        if(numOfCurAgent+1==Map.agents)
+        {
+            AA_SIPP_O last = AA_SIPP_O(weight,breakingties);
+            result = last.findPath(sresult, Map);
+            sresult.pathInfo.push_back(result);
+            std::cout<<result.time<<" "<<result.pathlength<<"  ";
+        }
         if(findPath(numOfCurAgent, Map))
-            constraints.addConstraints(sresult.pathInfo.back().sections);
+            constraints->addConstraints(sresult.pathInfo.back().sections);
+        if(numOfCurAgent+1==Map.agents)
+        {
+            std::cout<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" "<<result.pathlength - sresult.pathInfo.back().pathlength<<" \n";
+        }
+        close.clear();
+        for(int i = 0; i< Map.height; i++)
+            open[i].clear();
+        open.clear();
     }
 #ifdef __linux__
     gettimeofday(&end, NULL);
@@ -141,40 +285,23 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
     return sresult;
 }
 
-void AA_SIPP::initStates(int numOfCurAgent, const cMap &Map)
+
+Node AA_SIPP::resetParent(Node current, Node Parent, const cMap &Map)
 {
-    std::vector<std::pair<double, double>> begins(0);
-    double g, h(calculateDistanceFromCellToCell(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]));
-    Node n(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,CN_INFINITY,1);
-    states.insert(n);
-    auto parent = states.getParentPtr();
-    for(int i = 0; i < Map.height; i++)
-        for(int j = 0; j < Map.width; j++)
-        {
-            begins = constraints.getSafeBegins(i, j);
-            g = calculateDistanceFromCellToCell(i, j, Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent]);
-            h = calculateDistanceFromCellToCell(i, j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
-            n = Node(i,j,g+h,g,h,false);
-            n.Parent = parent;
-            for(int k = 0; k < begins.size(); k++)
-            {
-                n.interval_begin = begins[k].first;
-                n.interval_end = begins[k].second;
-                if(n.interval_begin > n.g)
-                {
-                    n.g = n.interval_begin;
-                    n.F = n.g + n.h;
-                }
-                n.parents.clear();
-                n.parents.push_back({parent, n.g + n.h});
-                if(n.g <= n.interval_end)
-                    states.insert(n);
-            }
-        }
-    h = (calculateDistanceFromCellToCell(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]));
-    n = Node(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,CN_INFINITY);
-    n.best_g = h;
-    states.expand(n);
+    if(Parent.Parent == nullptr || (current.i == Parent.Parent->i && current.j == Parent.Parent->j))
+        return current;
+    /*if(Parent.Parent == nullptr
+            || (abs(current.i - Parent.Parent->i)<=abs(Parent.i - Parent.Parent->i)
+                && abs(current.j - Parent.Parent->j)<abs(Parent.j - Parent.Parent->j))
+            || (abs(current.i - Parent.Parent->i)<abs(Parent.i - Parent.Parent->i)
+                && abs(current.j - Parent.Parent->j)<=abs(Parent.j - Parent.Parent->j)))
+        return current;*/ //pruning rule, that allows to speed up search process, but can change a bit the result
+    if(lineOfSight(Parent.Parent->i, Parent.Parent->j, current.i, current.j, Map))
+    {
+        current.g = Parent.Parent->g + calculateDistanceFromCellToCell(Parent.Parent->i, Parent.Parent->j, current.i, current.j);
+        current.Parent = Parent.Parent;
+    }
+    return current;
 }
 
 bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
@@ -188,52 +315,49 @@ bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
     QueryPerformanceCounter(&begin);
     QueryPerformanceFrequency(&freq);
 #endif
+    open.resize(Map.height);
     ResultPathInfo resultPath;
-    states.clear();
-    initStates(numOfCurAgent, Map);
-    Node curNode(states.getMin());
-    Node newNode;
-    bool pathFound(false);
-    while(!curNode.expanded && curNode.g < CN_INFINITY)//if expanded => there is no any non-expanded node, i.e. OPEN is empty //if curNode.g=CN_INFINITY => there are only unreachable non-consistent states => path cannot be found
+    openSize = 0;
+    closeSize = 0;
+
+    Node curNode(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], 0, 0);
+    curNode.F = weight * calculateDistanceFromCellToCell(curNode.i, curNode.j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
+    curNode.interval = constraints->getSafeInterval(curNode.i,curNode.j,0);
+    bool pathFound = false;
+    open[curNode.i].push_back(curNode);
+    openSize++;
+    while(!stopCriterion())
     {
-        newNode = curNode;
-        newNode.g = constraints.findEAT(newNode, states);
-        if(newNode.g > newNode.best_g || newNode.g == CN_INFINITY)
+        curNode = findMin(Map.height);
+        open[curNode.i].pop_front();
+        openSize--;
+        close.insert({curNode.i * Map.width + curNode.j, curNode});
+        closeSize++;
+        if(curNode.i == Map.goal_i[numOfCurAgent] && curNode.j == Map.goal_j[numOfCurAgent] && curNode.interval.second == CN_INFINITY)
         {
-            states.update(newNode, false);
+            pathFound = true;
+            break;
         }
-        else
-        {
-            newNode.best_g = newNode.g;
-            newNode.best_Parent = newNode.Parent;
-            states.update(newNode, true);
-        }
-        curNode = states.getMin();
-        if(newNode.best_g + newNode.h - curNode.F < CN_EPSILON && newNode.best_g < CN_INFINITY)
-        {
-            states.expand(newNode);
-            states.updateNonCons(newNode);
-            if(newNode.i == Map.goal_i[numOfCurAgent] && newNode.j == Map.goal_j[numOfCurAgent] && newNode.interval_end == CN_INFINITY)
-            {
-                pathFound = true;
-                break;
-            }
-            if(curNode.i == newNode.i && curNode.j == newNode.j && curNode.interval_begin == curNode.interval_begin)
-                curNode = states.getMin();
-        }
+        std::list<Node> successors;
+        successors.clear();
+        findSuccessors(curNode, Map, successors, numOfCurAgent);
+        for(auto it = successors.begin(); it != successors.end(); it++)
+            addOpen(*it);
     }
     if(pathFound)
     {
-        makePrimaryPath(newNode);
+        makePrimaryPath(curNode);
         for(int i = 1; i < hppath.size(); i++)
             if((hppath[i].g - (hppath[i - 1].g + calculateDistanceFromCellToCell(hppath[i].i, hppath[i].j, hppath[i - 1].i, hppath[i - 1].j))) > CN_EPSILON)
             {
                 Node add = hppath[i - 1];
+                add.Parent = hppath[i].Parent;
                 add.g = hppath[i].g - calculateDistanceFromCellToCell(hppath[i].i, hppath[i].j, hppath[i - 1].i,hppath[i - 1].j);
+                auto parent = (close.insert({add.i*Map.width + add.j, add}));
+                hppath[i].Parent = &(*parent).second;
                 hppath.emplace(hppath.begin() + i, add);
                 i++;
             }
-
 #ifdef __linux__
         gettimeofday(&end, NULL);
         resultPath.time = (end.tv_sec - begin.tv_sec) + static_cast<double>(end.tv_usec - begin.tv_usec) / 1000000;
@@ -242,14 +366,14 @@ bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
         resultPath.time = static_cast<double long>(end.QuadPart-begin.QuadPart) / freq.QuadPart;
 #endif
         resultPath.sections = hppath;
-        makeSecondaryPath(newNode);
+        makeSecondaryPath(curNode);
         resultPath.nodescreated = openSize + closeSize;
         resultPath.pathfound = true;
         resultPath.path = lppath;
         resultPath.numberofsteps = closeSize;
-        resultPath.pathlength = newNode.g;
+        resultPath.pathlength = curNode.g;
         sresult.pathfound = true;
-        sresult.pathlength += newNode.g;
+        sresult.pathlength += curNode.g;
         sresult.nodescreated += openSize + closeSize;
         sresult.numberofsteps += closeSize;
         sresult.pathInfo.push_back(resultPath);
@@ -265,7 +389,7 @@ bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
         resultPath.time = static_cast<double long>(end.QuadPart-begin.QuadPart) / freq.QuadPart;
 #endif
         std::cout<<numOfCurAgent<<" PATH NOT FOUND!\n";
-        //sresult.pathfound = false;
+        sresult.pathfound = false;
         sresult.nodescreated += closeSize;
         sresult.numberofsteps += closeSize;
         resultPath.nodescreated = closeSize;
@@ -366,7 +490,7 @@ std::vector<conflict> AA_SIPP::CheckConflicts()
                     b = positions[j].back();
                 if(sqrt((a.i - b.i)*(a.i - b.i) + (a.j - b.j)*(a.j - b.j)) + CN_EPSILON < 1.0)
                 {
-                   // std::cout<<a.i<<" "<<a.j<<" "<<b.i<<" "<<b.j<<" "<<sqrt((a.i - b.i)*(a.i - b.i) + (a.j - b.j)*(a.j - b.j))<<"\n";
+                    std::cout<<a.i<<" "<<a.j<<" "<<b.i<<" "<<b.j<<" "<<sqrt((a.i - b.i)*(a.i - b.i) + (a.j - b.j)*(a.j - b.j))<<"\n";
                     conf.i = b.i;
                     conf.j = b.j;
                     conf.agent1 = i;
@@ -385,23 +509,20 @@ void AA_SIPP::makePrimaryPath(Node curNode)
     hppath.clear();
     hppath.shrink_to_fit();
     std::list<Node> path;
-    Node n(curNode.i, curNode.j, curNode.F, curNode.g);
-    path.push_front(n);
-    if(curNode.Parent != nullptr)
+    path.push_front(curNode);
+    if(curNode.Parent != NULL)
     {
         curNode = *curNode.Parent;
-        if(curNode.Parent != nullptr)
+        if(curNode.Parent != NULL)
         {
             do
             {
-                Node n(curNode.i, curNode.j, curNode.F, curNode.g);
-                path.push_front(n);
+                path.push_front(curNode);
                 curNode = *curNode.Parent;
             }
-            while(curNode.Parent != nullptr);
+            while(curNode.Parent != NULL);
         }
-        Node n(curNode.i, curNode.j, curNode.F, curNode.g);
-        path.push_front(n);
+        path.push_front(curNode);
     }
     for(auto it = path.begin(); it != path.end(); it++)
         hppath.push_back(*it);
@@ -411,7 +532,7 @@ void AA_SIPP::makePrimaryPath(Node curNode)
 void AA_SIPP::makeSecondaryPath(Node curNode)
 {
     lppath.clear();
-    if(curNode.Parent != nullptr)
+    if(curNode.Parent != NULL)
     {
         std::vector<Node> lineSegment;
         do
@@ -420,7 +541,7 @@ void AA_SIPP::makeSecondaryPath(Node curNode)
             lppath.insert(lppath.begin(), ++lineSegment.begin(), lineSegment.end());
             curNode = *curNode.Parent;
         }
-        while(curNode.Parent != nullptr);
+        while(curNode.Parent != NULL);
         lppath.push_front(*lineSegment.begin());
     }
     else

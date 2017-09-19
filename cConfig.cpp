@@ -128,7 +128,7 @@ bool cConfig::getConfig(const char* FileName)
     element = algorithm->FirstChildElement(CNS_TAG_CONSTRAINTSTYPE);
     if (!element)
     {
-        std::cout << "Warning! No '"<<CNS_TAG_CONSTRAINTSTYPE<<"' element found inside '"<<CNS_TAG_ALGORITHM<<"' section. It's compared to 'section'."<<std::endl;
+        //std::cout << "Warning! No '"<<CNS_TAG_CONSTRAINTSTYPE<<"' element found inside '"<<CNS_TAG_ALGORITHM<<"' section. It's compared to 'section'."<<std::endl;
     }
     else
     {
@@ -141,7 +141,7 @@ bool cConfig::getConfig(const char* FileName)
             searchParams[CN_PT_CT] = CN_CT_SECTION;
         else
         {
-            std::cout << "Warning! Wrong '"<<CNS_TAG_CONSTRAINTSTYPE<<"' value. It's compared to 'section'."<<std::endl;
+            //std::cout << "Warning! Wrong '"<<CNS_TAG_CONSTRAINTSTYPE<<"' value. It's compared to 'section'."<<std::endl;
             searchParams[CN_PT_CT] = CN_CT_SECTION;
         }
     }

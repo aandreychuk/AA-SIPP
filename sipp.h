@@ -33,7 +33,6 @@ private:
     std::list<Node> *open, lppath;
     std::vector<Node> hppath;
     std::vector<std::vector<std::vector<movement>>> ctable;
-    StatesContainer states;
 };
 
 #endif // SIPP_H

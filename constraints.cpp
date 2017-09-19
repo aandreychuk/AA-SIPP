@@ -1,10 +1,6 @@
 #include "constraints.h"
 
-Constraints::Constraints()
-{
-
-}
-void Constraints::init(int width, int height)
+Constraints::Constraints(int width, int height)
 {
     safe_intervals.resize(height);
     for(int i = 0; i < height; i++)
@@ -15,13 +11,6 @@ void Constraints::init(int width, int height)
             safe_intervals[i][j].resize(0);
             safe_intervals[i][j].push_back({0,CN_INFINITY});
         }
-    }
-    constraints.resize(height);
-    for(int i = 0; i < height; i++)
-    {
-        constraints[i].resize(width);
-        for(int j = 0; j < width; j++)
-            constraints[i][j].resize(0);
     }
 }
 
@@ -114,10 +103,31 @@ void Constraints::updateSafeIntervals(const std::vector<std::pair<int, int> > &c
     }
 }
 
-std::vector<std::pair<int,int>> Constraints::findConflictCells(Node begin, Node end)
+std::vector<std::pair<double, double> > Constraints::getSafeIntervals(Node curNode, const std::unordered_multimap<int, Node> &close, int w)
+{
+    std::vector<std::pair<double, double> > intervals(0);
+    auto range = close.equal_range(curNode.i*w + curNode.j);
+    for(int i = 0; i < safe_intervals[curNode.i][curNode.j].size(); i++)
+        if(safe_intervals[curNode.i][curNode.j][i].second > curNode.g
+                && safe_intervals[curNode.i][curNode.j][i].first <= (curNode.Parent->interval.second + curNode.g - curNode.Parent->g))
+        {
+            bool has = false;
+            for(auto it = range.first; it != range.second; it++)
+                if(it->second.interval.first == safe_intervals[curNode.i][curNode.j][i].first && curNode.g >= it->second.g)
+                {
+                    has = true;
+                    break;
+                }
+            if(!has)
+                intervals.push_back(safe_intervals[curNode.i][curNode.j][i]);
+        }
+    return intervals;
+}
+
+std::vector<std::pair<int,int>> Constraints::findConflictCells(Node cur)
 {
     std::vector<std::pair<int,int>> cells(0);
-    int i1 = begin.i, j1 = begin.j, i2 = end.i, j2 = end.j;
+    int i1 = cur.i, j1 = cur.j, i2 = cur.Parent->i, j2 = cur.Parent->j;
     int delta_i = std::abs(i1 - i2);
     int delta_j = std::abs(j1 - j2);
     int step_i = (i1 < i2 ? 1 : -1);
@@ -177,7 +187,31 @@ std::vector<std::pair<int,int>> Constraints::findConflictCells(Node begin, Node 
     return cells;
 }
 
-void Constraints::addConstraints(const std::vector<Node> &sections)
+
+PointConstraints::PointConstraints(int width, int height):Constraints(width, height)
+{
+    gap = 2.0;
+    constraints.resize(height);
+    for(int i = 0; i < height; i++)
+    {
+        constraints[i].resize(width);
+        for(int j = 0; j < width; j++)
+            constraints[i][j].resize(0);
+    }
+}
+
+VelocityConstraints::VelocityConstraints(int width, int height):Constraints(width, height)
+{
+    constraints.resize(height);
+    for(int i = 0; i < height; i++)
+    {
+        constraints[i].resize(width);
+        for(int j = 0; j < width; j++)
+            constraints[i][j].resize(0);
+    }
+}
+
+void VelocityConstraints::addConstraints(const std::vector<Node> &sections)
 {
     std::vector<std::pair<int,int>> cells;
     section sec(sections.back(), sections.back());
@@ -187,7 +221,7 @@ void Constraints::addConstraints(const std::vector<Node> &sections)
         safe_intervals[sec.i1][sec.j1].clear();
     for(int a = 1; a < sections.size(); a++)
     {
-        cells = findConflictCells(sections[a-1], sections[a]);
+        cells = findConflictCells(sections[a]);
         sec = section(sections[a-1], sections[a]);
         for(int i = 0; i < cells.size(); i++)
             constraints[cells[i].first][cells[i].second].push_back(sec);
@@ -198,7 +232,330 @@ void Constraints::addConstraints(const std::vector<Node> &sections)
     }
 }
 
-int Constraints::checkIntersection(Point A, Point B, Point C, Point D, Point &intersec)
+std::vector<std::pair<double,double>> VelocityConstraints::findIntervals(Node curNode, std::vector<double> &EAT, const std::unordered_multimap<int, Node> &close, int w)
+{
+    std::vector<std::pair<double,double>> curNodeIntervals = getSafeIntervals(curNode, close, w);
+    if(curNodeIntervals.empty())
+        return curNodeIntervals;
+    EAT.clear();
+    std::vector<std::pair<int,int>> cells = findConflictCells(curNode);
+    std::vector<section> sections(0);
+    section sec;
+    for(int i = 0; i < cells.size(); i++)
+        for(int j=0; j<constraints[cells[i].first][cells[i].second].size(); j++)
+        {
+            sec = constraints[cells[i].first][cells[i].second][j];
+            if(sec.g2 < curNode.Parent->g || sec.g1 > (curNode.Parent->interval.second + curNode.g - curNode.Parent->g))
+                continue;
+            if(std::find(sections.begin(), sections.end(), sec) == sections.end())
+                sections.push_back(sec);
+        }
+    auto range = close.equal_range(curNode.i*w + curNode.j);
+    for(int i=0; i<curNodeIntervals.size(); i++)
+    {
+        std::pair<double,double> cur_interval(curNodeIntervals[i]);
+        if(cur_interval.first < curNode.g)
+            cur_interval.first = curNode.g;
+        double startTimeA = curNode.Parent->g;
+        if(cur_interval.first > startTimeA + curNode.g - curNode.Parent->g)
+            startTimeA = cur_interval.first - curNode.g + curNode.Parent->g;
+        int j = 0;
+        bool goal_collision;
+        while(j < sections.size())
+        {
+            goal_collision = false;
+            if(hasCollision(curNode, startTimeA, sections[j], goal_collision))
+            {
+                startTimeA += 1.0;
+                cur_interval.first += 1.0;
+                j = 0;//start to check all constraints again, because time has changed
+                if(goal_collision || cur_interval.first > cur_interval.second || startTimeA > curNode.Parent->interval.second)
+                {
+                    curNodeIntervals.erase(curNodeIntervals.begin() + i);
+                    i--;
+                    break;
+                }
+            }
+            else
+                j++;
+        }
+        if(j == sections.size())
+        {
+            bool has=false;
+            for(auto rit = range.first; rit != range.second; rit++)
+                if(rit->second.interval.first == curNodeIntervals[i].first && cur_interval.first >= rit->second.g)
+                {
+                    has = true;
+                    curNodeIntervals.erase(curNodeIntervals.begin()+i);
+                    i--;
+                    break;
+                }
+            if(!has)
+                EAT.push_back(cur_interval.first);
+        }
+    }
+    return curNodeIntervals;
+}
+
+bool VelocityConstraints::hasCollision(const Node &curNode, double startTimeA, const section &constraint, bool &goal_collision)
+{
+    double endTimeA(startTimeA + curNode.g - curNode.Parent->g), startTimeB(constraint.g1), endTimeB(constraint.g2);
+    if(fgreater(startTimeA,endTimeB) || fgreater(startTimeB,endTimeA))
+        return false;
+    Vector2D A(curNode.Parent->i,curNode.Parent->j);
+    Vector2D VA((curNode.i - curNode.Parent->i)/(curNode.g - curNode.Parent->g), (curNode.j - curNode.Parent->j)/(curNode.g - curNode.Parent->g));
+    Vector2D B(constraint.i1, constraint.j1);
+    Vector2D VB((constraint.i2 - constraint.i1)/(constraint.g2 - constraint.g1), (constraint.j2 - constraint.j1)/(constraint.g2 - constraint.g1));
+    if(fgreater(startTimeB,startTimeA))
+    {
+      // Move A to the same time instant as B
+      A+=VA*(startTimeB-startTimeA);
+      startTimeA=startTimeB;
+    }
+    else if(fless(startTimeB,startTimeA))
+    {
+      B+=VB*(startTimeA-startTimeB);
+      startTimeB=startTimeA;
+    }
+
+    double r(1.0); // Combined radius
+    Vector2D w(B-A);
+    double c(w.sq() - r*r);
+    if(c < 0)
+    {
+        if(constraint.g2 == CN_INFINITY)
+            goal_collision = true;
+        return true;
+    } // Agents are currently colliding
+
+    // Use the quadratic formula to detect nearest collision (if any)
+    Vector2D v(VA-VB);
+    double a(v.sq());
+    double b(w*v);
+
+    double dscr(b*b - a*c);
+    if(dscr <= 0)
+        return false;
+
+    double ctime = (b - sqrt(dscr))/a;
+    if(fgeq(ctime,0) && fleq(ctime, min(endTimeB,endTimeA) - startTimeA))
+    {
+        if(constraint.g2 == CN_INFINITY)
+            goal_collision = true;
+        return true;
+    }
+    else
+        return false;
+}
+
+void PointConstraints::addConstraints(const std::vector<Node> &sections)
+{
+    if(sections.size() == 1)
+    {
+        constraint add;
+        add.i = sections.back().i;
+        add.j = sections.back().j;
+        add.g = 0;
+        add.goal = true;
+        constraints[add.i][add.j].push_back(add);
+        safe_intervals[add.i][add.j].clear();
+        return;
+    }
+    for(int a = 1; a < sections.size(); a++)
+    {
+        section sec(sections[a-1], sections[a]);
+        std::vector<std::pair<int,int>> cells = findConflictCells(sections[a]);
+        int x0 = sec.i1, y0 = sec.j1, x1 = sec.i2, y1 = sec.j2;
+        constraint add;
+        int dx = abs(x1 - x0);
+        int dy = abs(y1 - y0);
+        if(dx == 0 && dy == 0)
+        {
+            add.i = sec.i1;
+            add.j = sec.j1;
+            add.goal = false;
+            for(double i = sec.g1; i <= sec.g2; i += gap)
+            {
+                add.g = i;
+                if(constraints[add.i][add.j].empty() || constraints[add.i][add.j].back().g != add.g)
+                    constraints[add.i][add.j].push_back(add);
+            }
+            if(constraints[add.i][add.j].back().g < sec.g2)
+            {
+                add.g = sec.g2;
+                constraints[add.i][add.j].push_back(add);
+            }
+            continue;
+        }
+        else
+        {
+            for(int i = 0; i < cells.size(); i++)
+            {
+                add.i = cells[i].first;
+                add.j = cells[i].second;
+                std::pair<double,double> ps,pg;
+                ps={x0, y0};
+                pg={x1, y1};
+                double dist = fabs((ps.first - pg.first)*add.j + (pg.second - ps.second)*add.i + (ps.second*pg.first - ps.first*pg.second))
+                        /sqrt(pow(ps.first - pg.first,2) + pow(ps.second - pg.second,2));
+                double da = (x0 - add.i)*(x0 - add.i) + (y0 - add.j)*(y0 - add.j);
+                double db = (x1 - add.i)*(x1 - add.i) + (y1 - add.j)*(y1 - add.j);
+                double ha = sqrt(da - dist*dist);
+                double hb = sqrt(db - dist*dist);
+                constraint con;
+
+                if(hb > 0)
+                {
+                    double lambda = ha/hb;
+                    con.i = (x0 + lambda*x1)/(1 + lambda);
+                    con.j = (y0 + lambda*y1)/(1 + lambda);
+                }
+                else
+                {
+                    con.i = x1;
+                    con.j = y1;
+                }
+                con.g = sec.g1 + sqrt(pow(sec.i1 - con.i, 2) + pow(sec.j1 - con.j, 2));
+                if(add.i == sections.back().i && add.j == sections.back().j)
+                    con.goal = true;
+                else
+                    con.goal = false;
+                if(constraints[add.i][add.j].empty() || fabs(constraints[add.i][add.j].back().g-con.g)>CN_EPSILON)
+                    constraints[add.i][add.j].push_back(con);
+            }
+        }
+        if(a+1 == sections.size())
+            updateSafeIntervals(cells,sec,true);
+        else
+            updateSafeIntervals(cells,sec,false);
+    }
+}
+
+
+std::vector<std::pair<double,double>> PointConstraints::findIntervals(Node curNode, std::vector<double> &EAT, const std::unordered_multimap<int, Node> &close, int w)
+{
+    std::vector<std::pair<double,double>> badIntervals(0), curNodeIntervals(getSafeIntervals(curNode,close,w));
+    if(curNodeIntervals.empty())
+        return curNodeIntervals;
+    std::vector<std::pair<int,int>> cells = findConflictCells(curNode);
+    double da, db, offset, c1, c2, dist;
+    double ab = curNode.g - curNode.Parent->g;
+    std::pair<double,double> add;
+    constraint con;
+    EAT.clear();
+    for(int i=0; i<curNodeIntervals.size(); i++)
+    {
+        if(curNodeIntervals[i].first<curNode.g)
+            EAT.push_back(curNode.g);
+        else
+            EAT.push_back(curNodeIntervals[i].first);
+    }
+    for(int i = 0; i < cells.size(); i++)
+    {
+        for(int j = 0; j < constraints[cells[i].first][cells[i].second].size(); j++)
+        {
+            con = constraints[cells[i].first][cells[i].second][j];
+            if(con.g + gap < curNode.Parent->g && !con.goal)
+                continue;
+            da = (curNode.i - con.i)*(curNode.i - con.i) + (curNode.j - con.j)*(curNode.j - con.j);
+            c1 = (curNode.Parent->j - curNode.j)*(con.j - curNode.j) + (curNode.Parent->i - curNode.i)*(con.i - curNode.i);
+            c2 = (curNode.Parent->j - curNode.j)*(curNode.Parent->j - curNode.j) + (curNode.Parent->i - curNode.i)*(curNode.Parent->i - curNode.i);
+            if(c1 <= 0 || c2 <= c1)//if constraint is outside of the section
+            {
+                db = (curNode.Parent->i - con.i)*(curNode.Parent->i - con.i) + (curNode.Parent->j - con.j)*(curNode.Parent->j - con.j);
+                if(da < db)
+                    dist = da;
+                else
+                    dist = db;
+                if(dist < 1.0)//less than 2r
+                {
+                    if(dist == da)
+                        add={con.g - gap, con.g + gap};
+                    else
+                        add={con.g - gap + ab, con.g + gap + ab};
+                    if(con.goal == true)
+                        add.second = CN_INFINITY;
+                    badIntervals.push_back(add);
+                    continue;
+                }
+
+            }
+            else
+            {
+                dist = fabs(((curNode.Parent->i - curNode.i)*con.j + (curNode.j - curNode.Parent->j)*con.i
+                             +(curNode.Parent->j*curNode.i - curNode.Parent->i*curNode.j)))/ab;
+                if(dist < 1.0)
+                {
+                    offset = sqrt(da - dist*dist);
+                    add = {con.g - gap + offset, con.g + gap + offset};
+                    if(con.goal == true)
+                        add.second = CN_INFINITY;
+                    badIntervals.push_back(add);
+                }
+            }
+        }
+    }
+
+    //combining and sorting bad intervals
+    if(badIntervals.size() > 1)
+    {
+        std::sort(badIntervals.begin(), badIntervals.end(), sort_function);
+        std::pair<double,double> cur, next;
+        for(int i = 0; i < badIntervals.size() - 1; i++)
+        {
+            cur = badIntervals[i];
+            next = badIntervals[i + 1];
+            if((cur.first - next.first)*(cur.second - next.first) < CN_EPSILON)
+            {
+                if(next.second > cur.second)
+                    badIntervals[i].second = next.second;
+                badIntervals.erase(badIntervals.begin() + i + 1);
+                i--;
+            }
+        }
+    }
+
+    //searching reachebale intervals and theirs EAT
+    if(badIntervals.size() > 0)
+    {
+        for(int i = 0; i < badIntervals.size(); i++)
+            for(int j = 0; j < curNodeIntervals.size(); j++)
+                if(badIntervals[i].first < EAT[j])
+                {
+                    if(badIntervals[i].second > curNodeIntervals[j].second)
+                    {
+                        curNodeIntervals.erase(curNodeIntervals.begin() + j);
+                        EAT.erase(EAT.begin() + j);
+                        j--;
+                        continue;
+                    }
+                    else if(badIntervals[i].second > EAT[j])
+                        EAT[j] = badIntervals[i].second;
+                }
+        for(int i = 0; i < curNodeIntervals.size(); i++)
+            if(EAT[i] > curNode.Parent->interval.second + ab || curNodeIntervals[i].second < curNode.g)
+            {
+                curNodeIntervals.erase(curNodeIntervals.begin() + i);
+                EAT.erase(EAT.begin() + i);
+                i--;
+            }
+    }
+    auto range = close.equal_range(curNode.i*w + curNode.j);
+    bool has=false;
+    for(int i=0; i<curNodeIntervals.size(); i++)
+        for(auto rit = range.first; rit != range.second; rit++)
+            if(rit->second.interval.first == curNodeIntervals[i].first && EAT[i] >= rit->second.g)
+            {
+                has = true;
+                curNodeIntervals.erase(curNodeIntervals.begin()+i);
+                EAT.erase(EAT.begin() + i);
+                i--;
+                break;
+            }
+    return curNodeIntervals;
+}
+
+int SectionConstraints::checkIntersection(Point A, Point B, Point C, Point D, Point &intersec)
 {
     double denom  = (D.j - C.j)*(B.i - A.i) - (D.i - C.i)*(B.j - A.j);
     double nume_a = (D.i - C.i)*(A.j - C.j) - (D.j - C.j)*(A.i - C.i);
@@ -219,31 +576,35 @@ int Constraints::checkIntersection(Point A, Point B, Point C, Point D, Point &in
     return CN_NONINTERSECTING;
 }
 
-double Constraints::findEAT(const Node &curNode, StatesContainer &states)
+
+std::vector<std::pair<double,double>> SectionConstraints::findIntervals(Node curNode, std::vector<double> &EAT, const std::unordered_multimap<int, Node> &close, int w)
 {
-    std::vector<std::pair<double,double>> badIntervals(0);
-    std::pair<double,double> curNodeInterval({curNode.interval_begin, curNode.interval_end});
-    double dist = sqrt(pow(curNode.i - curNode.Parent->i,2)+pow(curNode.j - curNode.Parent->j,2));
-    double EAT = curNode.Parent->g + dist;
-    if(EAT < curNode.interval_begin)
-        EAT = curNode.interval_begin;
-    else if(EAT > curNode.interval_end)
-        return CN_INFINITY;
+    std::vector<std::pair<double,double>> badIntervals(0), curNodeIntervals(getSafeIntervals(curNode,close,w));
+    if(curNodeIntervals.empty())
+        return curNodeIntervals;
+    std::vector<std::pair<int,int>> cells = findConflictCells(curNode);
+    EAT.clear();
+    for(int i=0; i<curNodeIntervals.size(); i++)
+    {
+        if(curNodeIntervals[i].first<curNode.g)
+            EAT.push_back(curNode.g);
+        else
+            EAT.push_back(curNodeIntervals[i].first);
+    }
     std::vector<section> sections(0);
     section sec;
-    std::vector<std::pair<int,int>> cells = findConflictCells(*curNode.Parent, curNode);
     for(int i = 0; i < cells.size(); i++)
         for(int j=0; j<constraints[cells[i].first][cells[i].second].size(); j++)
         {
             sec = constraints[cells[i].first][cells[i].second][j];
-            if(sec.g2 < curNode.Parent->g || sec.g1 > (curNode.Parent->interval_end + curNode.g - curNode.Parent->g))
+            if(sec.g2 < curNode.Parent->g || sec.g1 > (curNode.Parent->interval.second + curNode.g - curNode.Parent->g))
                 continue;
             if(std::find(sections.begin(), sections.end(), sec) == sections.end())
                 sections.push_back(sec);
         }
     for(int i=0; i<sections.size(); i++)
     {
-        std::pair<double, double> badInterval = this->countInterval(sections[i], curNode);
+        std::pair<double, double> badInterval = countInterval(sections[i], curNode);
         if(badInterval.second > 0)
             badIntervals.push_back(badInterval);
     }
@@ -265,45 +626,58 @@ double Constraints::findEAT(const Node &curNode, StatesContainer &states)
             }
         }
     }
-    for(int i = 0; i < badIntervals.size(); i++)
-        if(badIntervals[i].first < EAT)
-        {
-            if(badIntervals[i].second > curNodeInterval.second)
+    //searching reachebale intervals and theirs EAT
+    if(badIntervals.size() > 0)
+    {
+        for(int i = 0; i < badIntervals.size(); i++)
+            for(int j = 0; j < curNodeIntervals.size(); j++)
+                if(badIntervals[i].first < EAT[j])
+                {
+                    if(badIntervals[i].second > curNodeIntervals[j].second)
+                    {
+                        curNodeIntervals.erase(curNodeIntervals.begin() + j);
+                        EAT.erase(EAT.begin() + j);
+                        j--;
+                        continue;
+                    }
+                    else if(badIntervals[i].second > EAT[j])
+                        EAT[j] = badIntervals[i].second;
+                }
+        for(int i = 0; i < curNodeIntervals.size(); i++)
+            if(EAT[i] > curNode.Parent->interval.second + curNode.g - curNode.Parent->g || curNodeIntervals[i].second < curNode.g)
             {
-                EAT = CN_INFINITY;
+                curNodeIntervals.erase(curNodeIntervals.begin() + i);
+                EAT.erase(EAT.begin() + i);
+                i--;
+            }
+    }
+    auto range = close.equal_range(curNode.i*w + curNode.j);
+    bool has=false;
+    for(int i=0; i<curNodeIntervals.size(); i++)
+        for(auto rit = range.first; rit != range.second; rit++)
+            if(rit->second.interval.first == curNodeIntervals[i].first && EAT[i] >= rit->second.g)
+            {
+                has = true;
+                curNodeIntervals.erase(curNodeIntervals.begin()+i);
+                EAT.erase(EAT.begin() + i);
+                i--;
                 break;
             }
-            else if(badIntervals[i].second > EAT)
-                EAT = badIntervals[i].second;
-        }
-    if(EAT > curNode.Parent->interval_end + dist || curNodeInterval.second < EAT)
-        EAT = CN_INFINITY;
-    /*if(!badIntervals.empty())
-        std::cout<<badIntervals[0].first<<" "<<badIntervals[0].second<<"  ";
-    std::cout<<"EAT "<<EAT<<"\n";*/
-    return EAT;
-}
-double Constraints::minDist(Point A, Point C, Point D)
-{
-    int classA=A.classify(C,D);
-    if(classA==3)
-        return sqrt(pow(A.i-C.i,2)+pow(A.j-C.j,2));
-    else if(classA==4)
-        return sqrt(pow(A.i-D.i,2)+pow(A.j-D.j,2));
-    else
-        return fabs((C.i-D.i)*A.j+(D.j-C.j)*A.i+(C.j*D.i-D.j*C.i))/sqrt(pow(C.i-D.i,2)+pow(C.j-D.j,2));
+    return curNodeIntervals;
 }
 
-std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
+std::pair<double,double> SectionConstraints::countInterval(section sec, Node curNode)
 {
     Point intersec, A(curNode.Parent->i, curNode.Parent->j), B(curNode.i, curNode.j), C(sec.i1, sec.j1), D(sec.i2, sec.j2);
     int pos = checkIntersection(A, B, C, D, intersec);
     int A1(A.j - B.j), A2(C.j - D.j), B1(A.i - B.i), B2(C.i - D.i);
-    double lengthAB = sqrt(pow(A.i - B.i,2)+pow(A.j-B.j,2));
+    double lengthAB = curNode.g - curNode.Parent->g;
     double lengthCD = sec.g2 - sec.g1;
     if(A2 == 0 && B2 == 0)//if we collide with a section, that represents wait action (or goal)
     {
         double dist_to_AB = (B1*D.j - A1*D.i + A.j*B.i - A.i*B.j)/lengthAB;
+        if(dist_to_AB >= 1.0)
+            return {-1, -1};
         double gap = sqrt(1.0 - pow(dist_to_AB, 2));
         double offset = sqrt(pow(dist(B, C), 2) - pow(dist_to_AB, 2));
         return {sec.g1 + offset - gap, sec.g2 + offset + gap};
@@ -334,7 +708,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
     else if(pos == CN_NONINTERSECTING)
     {
         double A_CD(minDist(A, C, D)), B_CD(minDist(B, C, D)), C_AB(minDist(C, A, B)), D_AB(minDist(D, A, B));
-        if(std::min(std::min(A_CD, B_CD), std::min(C_AB, D_AB)) >= 1.0)
+        if(min(min(A_CD, B_CD), min(C_AB, D_AB)) >= 1.0)
             return {-1,-1};
 
         intersec.i = ((C.i*D.j - C.j*D.i)*B1 - B2*(A.i*B.j - A.j*B.i))/((C.i - D.i)*(A.j - B.j) - (C.j - D.j)*(A.i - B.i));
@@ -362,7 +736,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                 offset = sqrt(pow(B.i - D.i, 2) + pow(B.j - D.j, 2) - pow(D_AB, 2));
                 interval = {sec.g2 + offset - gap, sec.g2 + offset + gap};
             }
-            if(std::min(dist_B,dist_C)*2>span)
+            if(min(dist_B,dist_C)*2>span)
                 return {sec.g1 + dist_C + dist_B - span, interval.second};
             else if(dist_B<dist_C)
             {
@@ -396,7 +770,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                 offset = sqrt(pow(B.i - C.i, 2) + pow(B.j - C.j, 2) - pow(C_AB, 2));
                 interval = {sec.g1 + offset - gap, sec.g1 + offset + gap};
             }
-            if(std::min(dist_A, dist_D)*2 > span)
+            if(min(dist_A, dist_D)*2 > span)
                 return {interval.first, sec.g1 - dist_C - dist_B + span};
             else if(dist_A < dist_D)
             {
@@ -430,7 +804,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                 offset = sqrt(pow(B.i - C.i, 2) + pow(B.j - C.j, 2) - pow(C_AB, 2));
                 interval = {sec.g1 + offset - gap, sec.g1 + offset + gap};
             }
-            if(std::min(dist_B, dist_D)*2 > span)
+            if(min(dist_B, dist_D)*2 > span)
                 return {sec.g1 - dist_C + dist_B - span, interval.second};
             else if(dist_B < dist_D)
             {
@@ -464,7 +838,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                 offset = sqrt(pow(B.i - D.i, 2) + pow(B.j - D.j, 2) - pow(D_AB, 2));
                 interval = {sec.g2 + offset - gap, sec.g2 + offset + gap};
             }
-            if(std::min(dist_A, dist_C)*2>span)
+            if(min(dist_A, dist_C)*2>span)
                 return {sec.g2 + dist_D - dist_B - span, interval.second};
             else if(dist_A < dist_C)
             {
@@ -489,7 +863,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_A = sqrt(pow(A.i - intersec.i, 2) + pow(A.j - intersec.j, 2));
                 double dist_C = sqrt(pow(C.i - intersec.i, 2) + pow(C.j - intersec.j, 2));
-                if(std::min(dist_A, dist_C)*2> span)
+                if(min(dist_A, dist_C)*2> span)
                 {
                     if(dist(B, intersec)*2 < span)
                         return {interval.first, sec.g1 + dist_C - dist(B, intersec) + span};
@@ -513,7 +887,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_A = sqrt(pow(A.i - intersec.i, 2) + pow(A.j - intersec.j, 2));
                 double dist_D = sqrt(pow(D.i - intersec.i, 2) + pow(D.j - intersec.j, 2));
-                if(std::min(dist_A, dist_D)*2 > span)
+                if(min(dist_A, dist_D)*2 > span)
                 {
                     if(dist(B, intersec)*2 < span)
                         return {interval.first, sec.g1 + dist(C, intersec) - dist(B, intersec) + span};
@@ -544,7 +918,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_B = sqrt(pow(B.i - intersec.i, 2) + pow(B.j - intersec.j, 2));
                 double dist_D = sqrt(pow(D.i - intersec.i, 2) + pow(D.j - intersec.j, 2));
-                if(std::min(dist_B, dist_D)*2 > span)
+                if(min(dist_B, dist_D)*2 > span)
                 {
                     if(dist(A, intersec)*2 < span)
                         return {sec.g1 + dist(C, intersec) + dist_B - span, interval.second};
@@ -568,7 +942,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_B = sqrt(pow(B.i - intersec.i, 2) + pow(B.j - intersec.j, 2));
                 double dist_C = sqrt(pow(C.i - intersec.i, 2) + pow(C.j - intersec.j, 2));
-                if(std::min(dist_B, dist_C)*2 > span)
+                if(min(dist_B, dist_C)*2 > span)
                 {
                     if(dist(A, intersec)*2 < span)
                         return {sec.g1 + dist_C + dist_B - span, interval.second};
@@ -599,7 +973,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_A = sqrt(pow(A.i - intersec.i, 2) + pow(A.j - intersec.j, 2));
                 double dist_C = sqrt(pow(C.i - intersec.i, 2) + pow(C.j - intersec.j, 2));
-                if(std::min(dist_A, dist_C)*2 > span)
+                if(min(dist_A, dist_C)*2 > span)
                 {
                     if(dist(D, intersec)*2 < span)
                         return {sec.g2 + dist(D, intersec) + dist(B, intersec) - span, interval.second};
@@ -623,7 +997,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_B = sqrt(pow(B.i - intersec.i, 2) + pow(B.j - intersec.j, 2));
                 double dist_C = sqrt(pow(C.i - intersec.i, 2) + pow(C.j - intersec.j, 2));
-                if(std::min(dist_B, dist_C)*2 > span)
+                if(min(dist_B, dist_C)*2 > span)
                 {
                     if(dist(D, intersec)*2 < span)
                         return {sec.g2 + dist(D, intersec) + dist_B - span, interval.second};
@@ -653,7 +1027,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_B = sqrt(pow(B.i - intersec.i, 2) + pow(B.j - intersec.j, 2));
                 double dist_D = sqrt(pow(D.i - intersec.i, 2) + pow(D.j - intersec.j, 2));
-                if(std::min(dist_B, dist_D)*2 > span)
+                if(min(dist_B, dist_D)*2 > span)
                 {
                     if(dist(C, intersec)*2 < span)
                         return {interval.first, sec.g1 - dist(C, intersec) + dist_B + span};
@@ -677,7 +1051,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
             {
                 double dist_A = sqrt(pow(A.i - intersec.i, 2) + pow(A.j - intersec.j, 2));
                 double dist_D = sqrt(pow(D.i - intersec.i,2) + pow(D.j - intersec.j, 2));
-                if(std::min(dist_A, dist_D)*2 > span)
+                if(min(dist_A, dist_D)*2 > span)
                 {
                     if(dist(C, intersec)*2 < span)
                         return {interval.first, sec.g1 - dist(C, intersec) + dist(B, intersec) + span};
@@ -698,7 +1072,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                 }
             }
         }
-        return {std::min(interval.first, interval2.first), std::max(interval.second, interval2.second)};
+        return {min(interval.first, interval2.first), max(interval.second, interval2.second)};
     }
     else//have intersection point
     {
@@ -710,7 +1084,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                span = sqrt(2.0/((A1*A2 + B1*B2)/(sqrt(A1*A1 + B1*B1)*sqrt(A2*A2 + B2*B2)) + 1.0)),
                dist;
         std::pair<double,double> interval(sec.g1 + dist_C + dist_B - span, sec.g1 + dist_C + dist_B + span);
-        if(std::min(dist_A, dist_D)*2 < span)
+        if(min(dist_A, dist_D)*2 < span)
         {
             if(dist_A < dist_D)
             {
@@ -723,7 +1097,7 @@ std::pair<double,double> Constraints::countInterval(section sec, Node curNode)
                 interval.second = sec.g2 + sqrt(pow(B.i - D.i, 2) + pow(B.j - D.j, 2) - pow(dist, 2)) + sqrt(1.0 - pow(dist, 2));
             }
         }
-        if(std::min(dist_B, dist_C)*2 < span)
+        if(min(dist_B, dist_C)*2 < span)
         {
             if(dist_B < dist_C)
                 dist = ((C.i - D.i)*B.j + (D.j - C.j)*B.i + (C.j*D.i - D.j*C.i))/lengthCD;

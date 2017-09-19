@@ -3,7 +3,6 @@
 #include <memory>
 #include "gl_const.h"
 #include <list>
-
 struct conflict
 {
     int agent1;
@@ -41,10 +40,13 @@ struct Node
     double interval_begin;
     const Node* best_Parent;
     double best_g;
+    double delta;
     std::list<std::pair<const Node*, double>> parents;
+    std::pair<double,double> interval;
     Node(int i=-1, int j=-1, double F=-1, double g=-1, double h=-1, bool expanded=false, double interval_begin=-1, double interval_end=-1, int consistent = 0)
-        :i(i),j(j),F(F),g(g),h(h),interval_begin(interval_begin),interval_end(interval_end),expanded(expanded),Parent(nullptr),consistent(consistent){best_Parent = nullptr; best_g = 2*CN_INFINITY; parents.clear();}
-    ~Node(){Parent = nullptr; best_Parent = nullptr;}
+        :i(i),j(j),F(F),g(g),h(h),interval_begin(interval_begin),interval_end(interval_end),expanded(expanded),Parent(nullptr),consistent(consistent)
+    {best_Parent = nullptr; best_g = CN_INFINITY; parents.clear();delta = interval_begin - g;}
+    ~Node(){Parent = nullptr; best_Parent = nullptr;parents.clear();}
 };
 
 struct section
@@ -56,10 +58,27 @@ struct section
     double g1;
     double g2;//is needed for goal and wait actions
 
-    bool operator == (const section &comp) const {return (i1 == comp.i1 && j1 == comp.j1 && g1 == comp.g1);}
-    section(int i1=-1, int j1=-1, int i2=-1, int j2=-1, double g1=-1, double g2=-1)
-        :i1(i1),j1(j1),i2(i2),j2(j2),g1(g1),g2(g2){}
-    section(const Node &a, const Node &b):i1(a.i),j1(a.j),i2(b.i),j2(b.j),g1(a.g),g2(b.g){}
+    bool operator== (const section &comp)   const{return (i1==comp.i1 && j1==comp.j1 && g1==comp.g1);}
+
+    section()
+    {
+        i1=-1;
+        j1=-1;
+        i2=-1;
+        j2=-1;
+        g1=-1;
+        g2=-1;
+    }
+
+    section(const Node &a, const Node &b)
+    {
+        i1=a.i;
+        j1=a.j;
+        g1=a.g;
+        i2=b.i;
+        j2=b.j;
+        g2 = b.g;
+    }
 };
 
 class Point {

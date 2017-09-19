@@ -14,7 +14,7 @@ struct by_cons;
 typedef multi_index_container<
     Node,
     indexed_by<
-        hashed_unique<
+        ordered_unique<
             tag<by_ij>,
             composite_key<
                 Node,
@@ -51,7 +51,8 @@ public:
         {
             n.expanded = expanded;
             n.Parent = n.best_Parent;
-            n.F = best_g;
+            n.F = best_g + n.h;
+            n.g = best_g;
             n.best_g = best_g;
             n.consistent = 1;
         }
@@ -65,28 +66,17 @@ public:
         addParent(const Node* parent, double new_g):parent(parent), new_g(new_g){}
         void operator()(Node &n)
         {
-            if(n.parents.empty() || n.parents.back().second <= new_g)
-            {
-                n.parents.push_back({parent, new_g});
-                return;
-            }
-            if(n.parents.begin()->second >= new_g)
-            {
-                n.F = n.F - n.g + new_g;
-                n.g = new_g;
-                n.Parent = parent;
+            if(n.parents.empty())
                 n.parents.push_front({parent, new_g});
-            }
-            bool inserted = false;
-            for(auto it = n.parents.begin(); it!= n.parents.end(); it++)
-                if(it->second >= new_g)
-                {
-                    inserted = true;
-                    n.parents.insert(it,{parent, new_g});
-                    break;
-                }
-            if(!inserted)
+            else if(n.parents.back().second - new_g < CN_EPSILON)
                 n.parents.push_back({parent, new_g});
+            else
+                for(auto it = n.parents.begin(); it != n.parents.end(); it++)
+                    if(it->second - new_g > CN_EPSILON)
+                    {
+                        n.parents.insert(it,{parent, new_g});
+                        break;
+                    }
         }
         private:
         const Node* parent;
@@ -95,26 +85,43 @@ public:
 
     struct updateFG
     {
-        updateFG(double g, const Node* parent, bool best):g(g), parent(parent), best(best){}
+        updateFG(double g, const Node* parent):g(g), parent(parent){}
         void operator()(Node& n)
         {
-            n.F = n.F - n.g + g;
+            n.F = g + n.h;
             n.g = g;
-            n.consistent = 2;
+            if(n.consistent == 0)
+                n.consistent = 2;
             n.Parent = parent;
-            if(n.parents.size()>1)
-                n.parents.pop_front();
-            if(best)
-            {
-                n.best_Parent = parent;
-                n.best_g = n.g;
-            }
         }
 
     private:
-        bool best;
         double g;
         const Node* parent;
+    };
+
+    struct updateBest
+    {
+        updateBest(double g, const Node* parent):g(g),parent(parent){}
+        void operator()(Node& n)
+        {
+            n.best_Parent = parent;
+            n.best_g = g;
+        }
+    private:
+        double g;
+        const Node* parent;
+    };
+
+
+    struct pop_parent
+    {
+        pop_parent(){}
+        void operator()(Node& n)
+        {
+            if(!n.parents.empty())
+                n.parents.pop_front();
+        }
     };
 
     Node getMin()
@@ -144,95 +151,94 @@ public:
         states.insert(curNode);
     }
 
-    void update(const Node& curNode, bool best)
+    void update(Node curNode, bool best)
     {
         typedef multi_index::index<by_ij>::type ij_index;
         ij_index & ij = states.get<by_ij>();
         auto it = ij.find(boost::tuple<int, int, double>(curNode.i, curNode.j, curNode.interval_begin));
+        ij.modify(it, pop_parent());
+        ij.modify(it, updateFG(curNode.best_g, curNode.best_Parent));
         if(best)
-            ij.modify(it, updateFG(curNode.g, curNode.Parent, true));
-        else
+            ij.modify(it, updateBest(curNode.best_g, curNode.best_Parent));
+        if(curNode.consistent == 0)
         {
-            if(curNode.consistent == 0)
-                this->findParents(curNode);
-
-            if(curNode.parents.size()>1)
-            {
-                auto c_it = curNode.parents.begin();
-                c_it++;
-                if(c_it->second < std::min(curNode.g, curNode.best_g))
-                {
-                    ij.modify(it, updateFG(c_it->second, c_it->first, false));
-                }
-                else if(curNode.g < curNode.best_g)
-                {
-                    ij.modify(it, updateFG(curNode.g, curNode.Parent, true));
-                }
-                else
-                {
-                    ij.modify(it, updateFG(curNode.best_g, curNode.best_Parent, false));
-                }
-            }
-            else
-            {
-                if(curNode.g > curNode.best_g)
-                    ij.modify(it, updateFG(curNode.best_g, curNode.best_Parent, false));
-                else
-                    ij.modify(it, updateFG(curNode.g, curNode.Parent, true));
-            }
+            curNode.parents = this->findParents(curNode);
+            for(auto pit = curNode.parents.begin(); pit!= curNode.parents.end(); pit++)
+                ij.modify(it, addParent(&(*pit->first), pit->second));
         }
+        if(!it->parents.empty())
+            if(it->parents.begin()->second < curNode.best_g)
+                ij.modify(it, updateFG(it->parents.begin()->second, it->parents.begin()->first));
     }
-    void findParents(const Node& curNode)
+
+    std::list<std::pair<const Node*, double>> findParents(const Node& curNode)
     {
+        std::list<std::pair<const Node*, double>> parents;
+        parents.clear();
         typedef multi_index::index<by_cons>::type cons_index;
         cons_index & cons = states.get<by_cons>();
         auto range = cons.equal_range(1);
-        typedef multi_index::index<by_ij>::type ij_index;
-        ij_index & ij = states.get<by_ij>();
-        auto c_it = ij.find(boost::tuple<int, int, double>(curNode.i, curNode.j, curNode.interval_begin));
         double dist;
+        bool found = false;
         for(auto it = range.first; it != range.second; it++)
         {
-            dist = sqrt(pow(it->i - curNode.i,2)+pow(it->j - curNode.j,2));
+            if(!found)
+                if(it->i == curNode.Parent->i && it->j == curNode.Parent->j && fabs(it->interval_begin - curNode.Parent->interval_begin) < CN_EPSILON)
+                {
+                    found = true;
+                    it++;
+                    if(it == range.second)
+                        break;
+                }
+            dist = sqrt(pow(it->i - curNode.i,2) + pow(it->j - curNode.j,2));
             if(it->g + dist < curNode.best_g)
             {
                 if(it->g + dist >= curNode.interval_begin)
                 {
                     if(it->g + dist <= curNode.interval_end)
-                        ij.modify(c_it, addParent(&(*it), it->g + dist));
+                        parents.push_back({&(*it), it->g + dist});
                 }
                 else if(it->interval_end + dist >= curNode.interval_begin)
-                    ij.modify(c_it, addParent(&(*it), curNode.interval_begin));
+                    parents.push_front({&(*it), curNode.interval_begin});
             }
         }
+        return parents;
     }
 
     void updateNonCons(const Node& curNode)
     {
         typedef multi_index::index<by_ij>::type ij_index;
         ij_index & ij = states.get<by_ij>();
-        auto p_it = ij.find(boost::tuple<int, int, double>(curNode.i, curNode.j, curNode.interval_begin));
+        auto parent = &(*ij.find(boost::tuple<int, int, double>(curNode.i, curNode.j, curNode.interval_begin)));
         typedef multi_index::index<by_cons>::type nc_index;
         nc_index & non_cons = states.get<by_cons>();
         auto range = non_cons.equal_range(2);
         double dist, new_g;
         for(auto it = range.first; it != range.second; it++)
         {
-            dist = sqrt(pow(it->i - curNode.i,2)+pow(it->j - curNode.j,2));
+            dist = sqrt(pow(it->i - curNode.i,2) + pow(it->j - curNode.j,2));
             new_g = dist + curNode.best_g;
             if(new_g < it->best_g)
             {
                 if(new_g >= it->interval_begin)
                 {
                     if(new_g <= it->interval_end)
-                        non_cons.modify(it, addParent(&(*p_it), new_g));
+                    {
+                        non_cons.modify(it, addParent(parent, new_g));
+                        if(it->g - new_g > CN_EPSILON)
+                            non_cons.modify(it, updateFG(new_g, parent));
+                    }
                 }
                 else if(curNode.interval_end + dist >= it->interval_begin)
-                    non_cons.modify(it, addParent(&(*p_it), it->interval_begin));
+                {
+                    non_cons.modify(it, addParent(parent, it->interval_begin));
+                    non_cons.modify(it, updateFG(it->interval_begin, parent));
+                }
             }
         }
+
     }
-    /*void findAndPrint(int i, int j)
+    void findAndPrint(int i, int j)
     {
         typedef multi_index::index<by_ij>::type ij_index;
         ij_index & ij = states.get<by_ij>();
@@ -243,7 +249,7 @@ public:
             for(auto p_it = it->parents.begin(); p_it!=it->parents.end(); p_it++)
                 std::cout<<p_it->first->i<<" "<<p_it->first->j<<" "<<p_it->first->g<<" "<<p_it->first->F<<" "<<p_it->first->best_g<<" "<<p_it->second<<" parent\n";
         }
-    }*/
+    }
 
     void printByFG()
     {
@@ -251,6 +257,12 @@ public:
         fg_index & fg = states.get<by_fg>();
         for(auto it=fg.begin(); it!=fg.end(); it++)
             std::cout<<it->i<<" "<<it->j<<" "<<it->interval_begin<<" "<<it->interval_end<<" "<<it->g<<" "<<it->F<<" "<<it->best_g<<" "<<it->parents.size()<<" "<<it->expanded<<" "<<it->consistent<<"\n";
+    }
+    void printStats()
+    {
+        typedef multi_index::index<by_cons>::type cons_index;
+        cons_index & cons = states.get<by_cons>();
+        std::cout<<cons.count(0)<<" "<<cons.count(1)<<" "<<cons.count(2)<<" ";
     }
 
     void clear()

@@ -32,7 +32,7 @@ void cMission::createSearch()
     if(m_config.searchParams[CN_PT_AA]==0)
         m_pSearch = new SIPP(m_config.searchParams[CN_PT_WEIGHT], m_config.searchParams[CN_PT_MT], m_config.searchParams[CN_PT_BT]);
     else
-        m_pSearch = new AA_SIPP(m_config.searchParams[CN_PT_WEIGHT], m_config.searchParams[CN_PT_BT]);
+        m_pSearch = new AA_SIPP(m_config.searchParams[CN_PT_WEIGHT], m_config.searchParams[CN_PT_BT], m_config.searchParams[CN_PT_CT]);
 }
 
 bool cMission::createLog()
@@ -56,18 +56,16 @@ bool cMission::createLog()
 
 void cMission::startSearch()
 {
-    std::cout<<"SEARCH STARTED\n";
     sr = m_pSearch->startSearch(m_pLogger, m_map);
 }
 
 void cMission::printSearchResultsToConsole()
 {
-    std::cout<<"Solved:"<<(float)sr.agentsSolved*100/sr.agents<<"%  Time:"<<sr.time<<"s Pathlength:"<<sr.pathlength<<"\n";
+    //std::cout<<"Solved:"<<(float)sr.agentsSolved*100/sr.agents<<"%  Time:"<<sr.time<<"s Pathlength:"<<sr.pathlength<<"\n";
 }
 
 void cMission::saveSearchResultsToLog()
 {
-    std::cout<<"LOG STARTED\n";
     m_pLogger->writeToLogSummary(sr);
     if (sr.pathfound)
     {
@@ -75,6 +73,5 @@ void cMission::saveSearchResultsToLog()
         m_pLogger->writeToLogMap(m_map,sr);
     }
     m_pLogger->saveLog();
-    std::cout<<"LOG SAVED\n";
 }
 

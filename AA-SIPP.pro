@@ -19,7 +19,9 @@ SOURCES += main.cpp \
     cConfig.cpp \
     sipp.cpp \
     aa_sipp.cpp \
-    constraints.cpp
+    constraints.cpp \
+    aa_sipp_o.cpp \
+    constraints_o.cpp
 
 HEADERS += \
     tinyxml.h \
@@ -35,5 +37,8 @@ HEADERS += \
     sipp.h \
     aa_sipp.h \
     structs.h \
+    Vector2D.h \
     constraints.h \
+    aa_sipp_o.h \
+    constraints_o.h \
     StatesContainer.h
