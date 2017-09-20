@@ -221,76 +221,55 @@ int Constraints_o::checkIntersection(Point A, Point B, Point C, Point D, Point &
 
 double Constraints_o::findEAT(const Node &curNode)
 {
-    std::vector<std::pair<double,double>> badIntervals(0);
-    double dist = sqrt(pow(curNode.i - curNode.Parent->i,2)+pow(curNode.j - curNode.Parent->j,2));
-    double EAT = std::max(curNode.Parent->g + dist, curNode.interval_begin);
-    //if(curNode.i==31 && curNode.j==45 && curNode.Parent->i==32 && curNode.Parent->j==42)
-    //    std::cout<<EAT<<" "<<curNode.interval_begin<<" "<<curNode.interval_end<<" "<<curNode.Parent->interval_begin<<" "<<curNode.Parent->interval_end<<" EAT\n";
-    if(EAT > curNode.interval_end)
-        return CN_INFINITY;
+    std::vector<std::pair<double,double>> safeIntervals(0);
+    double dist(sqrt(pow(curNode.i - curNode.Parent->i,2)+pow(curNode.j - curNode.Parent->j,2))), EAT(curNode.g);
+    safeIntervals.push_back({EAT, curNode.interval_end});
     std::vector<section> sections(0);
     section sec;
+    std::pair<double, double> badInterval;
     std::vector<std::pair<int,int>> cells = findConflictCells(*curNode.Parent, curNode);
     for(int i = 0; i < cells.size(); i++)
-        for(int j=0; j<constraints[cells[i].first][cells[i].second].size(); j++)
+        for(int j = 0; j < constraints[cells[i].first][cells[i].second].size(); j++)
         {
             sec = constraints[cells[i].first][cells[i].second][j];
-            if(sec.g2 < curNode.Parent->g || sec.g1 > (curNode.Parent->interval_end + curNode.g - curNode.Parent->g))
+            if(sec.g2 <= (safeIntervals.begin()->first - dist) || sec.g1 >= (std::min(curNode.Parent->interval_end + dist, safeIntervals.back().second)))
                 continue;
             if(std::find(sections.begin(), sections.end(), sec) == sections.end())
+            {
                 sections.push_back(sec);
-        }
-    for(int i=0; i<sections.size(); i++)
-    {
-        std::pair<double, double> badInterval = this->countInterval(sections[i], curNode);
-        if(badInterval.second > 0)
-            badIntervals.push_back(badInterval);
-    }
-    //combining and sorting bad intervals
-    if(badIntervals.size() > 1)
-    {
-        std::sort(badIntervals.begin(), badIntervals.end(), sort_function_o);
-        std::pair<double,double> cur, next;
-        for(int i = 0; i < badIntervals.size() - 1; i++)
-        {
-            cur = badIntervals[i];
-            next = badIntervals[i + 1];
-            if((cur.first - next.first)*(cur.second - next.first) < CN_EPSILON)
-            {
-                if(next.second > cur.second)
-                    badIntervals[i].second = next.second;
-                badIntervals.erase(badIntervals.begin() + i + 1);
-                i--;
+                badInterval = this->countInterval(sec, curNode);
+                if(badInterval.second >= 0)
+                    for(int k=0; k<safeIntervals.size(); k++)
+                        if(badInterval.first < safeIntervals[k].first)
+                        {
+                            if(badInterval.second > safeIntervals[k].second)
+                            {
+                                if(safeIntervals.size() == 1)
+                                    return CN_INFINITY;
+                                safeIntervals.erase(safeIntervals.begin()+k);
+                                k--;
+                            }
+                            else if(badInterval.second > safeIntervals[k].first)
+                            {
+                                safeIntervals[k].first = badInterval.second;
+                                if(safeIntervals[k].first > curNode.Parent->interval_end + dist || safeIntervals[k].first >= curNode.best_g)
+                                {
+                                    if(safeIntervals.size() == 1)
+                                        return CN_INFINITY;
+                                    safeIntervals.erase(safeIntervals.begin()+k);
+                                    k--;
+                                }
+                            }
+                        }
+                        else if(safeIntervals[k].first<badInterval.first && safeIntervals[k].second>badInterval.first)
+                        {
+                            safeIntervals[k].second = badInterval.first;
+                            if(safeIntervals[k].second>badInterval.second && badInterval.second < curNode.best_g && badInterval.second < curNode.Parent->interval_end + dist)
+                                safeIntervals.insert(safeIntervals.begin()+k+1,{badInterval.second,safeIntervals[k].second});
+                        }
             }
         }
-    }
-    //std::cout<<"EAT "<<EAT<<"  ";
-    //if(curNode.i==31 && curNode.j==45 && curNode.Parent->i==32 && curNode.Parent->j==42)
-    //    std::cout<<EAT<<" \n";
-    for(int i = 0; i < badIntervals.size(); i++)
-    {
-        //if(curNode.i==31 && curNode.j==45 && curNode.Parent->i==32 && curNode.Parent->j==42)
-        //    std::cout<<badIntervals[i].first<<" "<<badIntervals[i].second<<"\n";
-        if(badIntervals[i].first < EAT)
-        {
-            if(badIntervals[i].second > curNode.interval_end)
-            {
-
-                EAT = CN_INFINITY;
-                break;
-            }
-            else if(badIntervals[i].second > EAT)
-                EAT = badIntervals[i].second;
-        }
-    }
-    if(EAT > curNode.Parent->interval_end + dist || curNode.interval_end < EAT)
-        EAT = CN_INFINITY;
-    //if(!badIntervals.empty())
-    //    std::cout<<badIntervals[0].first<<" "<<badIntervals[0].second<<"  ";
-    //std::cout<<"EAT "<<EAT<<"\n";
-    //if(curNode.i==31 && curNode.j==45 && curNode.Parent->i==32 && curNode.Parent->j==42)
-    //    std::cout<<EAT<<" \n";
-    return EAT;
+    return safeIntervals[0].first;
 }
 double Constraints_o::minDist(Point A, Point C, Point D)
 {
