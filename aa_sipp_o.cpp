@@ -100,7 +100,8 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
 {
     std::vector<std::pair<double, double>> begins(0);
     double g, h(calculateDistanceFromCellToCell(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]));
-    Node n(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,CN_INFINITY,1);
+    Node n(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,constraints.getSafeInterval(Map.start_i[numOfCurAgent],Map.start_j[numOfCurAgent],0).second,1);
+    n.best_g = 0;
     states.insert(n);
     auto parent = states.getParentPtr();
     for(int i = 0; i < Map.height; i++)
@@ -115,12 +116,23 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
             {
                 n.interval_begin = begins[k].first;
                 n.interval_end = begins[k].second;
+                n.parents.clear();
+                if(i == Map.start_i[numOfCurAgent] && j == Map.start_j[numOfCurAgent])
+                {
+                    if(k==0)
+                        continue;
+                    n.g = CN_INFINITY;
+                    n.F = CN_INFINITY;
+                    n.Parent = nullptr;
+                    n.consistent = 2;
+                    states.insert(n);
+                    continue;
+                }
                 if(n.interval_begin > n.g)
                 {
                     n.g = n.interval_begin;
                     n.F = n.g + n.h;
                 }
-                n.parents.clear();
                 n.parents.push_back({parent, n.g});
                 if(n.g <= n.interval_end)
                     states.insert(n);
@@ -128,7 +140,6 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
         }
     h = (calculateDistanceFromCellToCell(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]));
     n = Node(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,CN_INFINITY,1);
-    n.best_g = 0;
     states.expand(n);
 }
 
@@ -145,7 +156,8 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
 #endif
     constraints.init(Map.width, Map.height);
     for(int i=0; i<sresult.pathInfo.size(); i++)
-        constraints.addConstraints(sresult.pathInfo[i].sections);
+        if(sresult.pathInfo[i].pathfound)
+            constraints.addConstraints(sresult.pathInfo[i].sections);
     ResultPathInfo resultPath;
     states.clear();
     initStates(Map.agents - 1, Map);
@@ -156,20 +168,18 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
     int expanded(0);
     int checked(0);
 
-    while(!curNode.expanded && curNode.g < CN_INFINITY)//if expanded => there is no any non-expanded node, i.e. OPEN is empty //if curNode.g=CN_INFINITY => there are only unreachable non-consistent states => path cannot be found
+    while(curNode.g < CN_INFINITY)//if curNode.g=CN_INFINITY => there are only unreachable non-consistent states => path cannot be found
     {
         checked++;
         newNode = curNode;
-        newNode.g = constraints.findEAT(newNode);
-        if(newNode.g <= newNode.best_g)
+        if(newNode.g < newNode.best_g)
         {
+            newNode.g = constraints.findEAT(newNode);
+            states.update(newNode, bool(newNode.g < newNode.best_g));
             newNode.best_g = newNode.g;
             newNode.best_Parent = newNode.Parent;
-            states.update(newNode, true);
+            curNode = states.getMin();
         }
-        else
-            states.update(newNode, false);
-        curNode = states.getMin();
         if((newNode.best_g + newNode.h - curNode.F) < CN_EPSILON)
         {
             expanded++;

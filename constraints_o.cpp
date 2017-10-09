@@ -223,7 +223,7 @@ double Constraints_o::findEAT(const Node &curNode)
 {
     std::vector<std::pair<double,double>> safeIntervals(0);
     double dist(sqrt(pow(curNode.i - curNode.Parent->i,2)+pow(curNode.j - curNode.Parent->j,2))), EAT(curNode.g);
-    safeIntervals.push_back({EAT, curNode.interval_end});
+    safeIntervals.push_back({EAT, std::min(curNode.Parent->interval_end + dist, curNode.interval_end)});
     std::vector<section> sections(0);
     section sec;
     std::pair<double, double> badInterval;
@@ -239,14 +239,14 @@ double Constraints_o::findEAT(const Node &curNode)
                 sections.push_back(sec);
                 badInterval = this->countInterval(sec, curNode);
                 if(badInterval.second >= 0)
-                    for(int k=0; k<safeIntervals.size(); k++)
+                    for(int k = 0; k < safeIntervals.size(); k++)
                         if(badInterval.first < safeIntervals[k].first)
                         {
                             if(badInterval.second > safeIntervals[k].second)
                             {
                                 if(safeIntervals.size() == 1)
                                     return CN_INFINITY;
-                                safeIntervals.erase(safeIntervals.begin()+k);
+                                safeIntervals.erase(safeIntervals.begin() + k);
                                 k--;
                             }
                             else if(badInterval.second > safeIntervals[k].first)
@@ -256,20 +256,23 @@ double Constraints_o::findEAT(const Node &curNode)
                                 {
                                     if(safeIntervals.size() == 1)
                                         return CN_INFINITY;
-                                    safeIntervals.erase(safeIntervals.begin()+k);
+                                    safeIntervals.erase(safeIntervals.begin() + k);
                                     k--;
                                 }
                             }
                         }
-                        else if(safeIntervals[k].first<badInterval.first && safeIntervals[k].second>badInterval.first)
+                        else if(safeIntervals[k].first <= badInterval.first && safeIntervals[k].second > badInterval.first)
                         {
+                            if(safeIntervals[k].second > badInterval.second && badInterval.second < curNode.best_g && badInterval.second < curNode.Parent->interval_end + dist)
+                                safeIntervals.insert(safeIntervals.begin() + k + 1, {badInterval.second, safeIntervals[k].second});
                             safeIntervals[k].second = badInterval.first;
-                            if(safeIntervals[k].second>badInterval.second && badInterval.second < curNode.best_g && badInterval.second < curNode.Parent->interval_end + dist)
-                                safeIntervals.insert(safeIntervals.begin()+k+1,{badInterval.second,safeIntervals[k].second});
                         }
             }
         }
-    return safeIntervals[0].first;
+    if(safeIntervals[0].first <= std::min(curNode.interval_end, curNode.Parent->interval_end + dist))
+        return safeIntervals[0].first;
+    else
+        return CN_INFINITY;
 }
 double Constraints_o::minDist(Point A, Point C, Point D)
 {
@@ -291,7 +294,7 @@ std::pair<double,double> Constraints_o::countInterval(section sec, Node curNode)
     double lengthCD = sec.g2 - sec.g1;
     if(A2 == 0 && B2 == 0)//if we collide with a section, that represents wait action (or goal)
     {
-        double dist_to_AB = (B1*D.j - A1*D.i + A.j*B.i - A.i*B.j)/lengthAB;
+        double dist_to_AB = fabs(B1*D.j - A1*D.i + A.j*B.i - A.i*B.j)/lengthAB;
         if(dist_to_AB >= 1.0)
             return {-1, -1};
         double gap = sqrt(1.0 - pow(dist_to_AB, 2));

@@ -46,25 +46,19 @@ public:
     multi_index states;
     struct updateExpand
     {
-        updateExpand(double best_g, bool expanded):best_g(best_g),expanded(expanded){}
+        updateExpand(){}
         void operator()(Node& n)
         {
-            n.expanded = expanded;
-            n.Parent = n.best_Parent;
-            n.F = best_g + n.h;
-            n.g = best_g;
-            n.best_g = best_g;
+            n.expanded = true;
             n.consistent = 1;
+            n.g = n.best_g;
+            n.Parent = n.best_Parent;
         }
-
-    private:
-        bool expanded;
-        double best_g;
     };
     struct addParent
     {
         addParent(const Node* parent, double new_g):parent(parent), new_g(new_g){}
-        void operator()(Node &n)
+        void operator()(Node& n)
         {
             if(n.parents.empty())
                 n.parents.push_front({parent, new_g});
@@ -136,7 +130,7 @@ public:
         typedef multi_index::index<by_ij>::type ij_index;
         ij_index & ij = states.get<by_ij>();
         auto it = ij.find(boost::tuple<int, int, double>(curNode.i, curNode.j, curNode.interval_begin));
-        ij.modify(it, updateExpand(curNode.best_g, true));
+        ij.modify(it, updateExpand());
     }
 
     const Node* getParentPtr()
@@ -151,24 +145,27 @@ public:
         states.insert(curNode);
     }
 
-    void update(Node curNode, bool best)
+    void update(const Node &curNode, bool best)
     {
         typedef multi_index::index<by_ij>::type ij_index;
         ij_index & ij = states.get<by_ij>();
+        std::list<std::pair<const Node*, double>> parents(0);
         auto it = ij.find(boost::tuple<int, int, double>(curNode.i, curNode.j, curNode.interval_begin));
         ij.modify(it, pop_parent());
-        ij.modify(it, updateFG(curNode.best_g, curNode.best_Parent));
         if(best)
-            ij.modify(it, updateBest(curNode.best_g, curNode.best_Parent));
+            ij.modify(it, updateBest(curNode.g, curNode.Parent));
         if(curNode.consistent == 0)
         {
-            curNode.parents = this->findParents(curNode);
-            for(auto pit = curNode.parents.begin(); pit!= curNode.parents.end(); pit++)
+            parents = this->findParents(curNode);
+            for(auto pit = parents.begin(); pit!= parents.end(); pit++)
                 ij.modify(it, addParent(&(*pit->first), pit->second));
         }
-        if(!it->parents.empty())
-            if(it->parents.begin()->second < curNode.best_g)
-                ij.modify(it, updateFG(it->parents.begin()->second, it->parents.begin()->first));
+        if(!it->parents.empty() && it->parents.begin()->second < std::min(curNode.g, curNode.best_g))
+            ij.modify(it, updateFG(it->parents.begin()->second, it->parents.begin()->first));
+        else if(best)
+            ij.modify(it, updateFG(curNode.g, curNode.Parent));
+        else
+            ij.modify(it, updateFG(curNode.best_g, curNode.best_Parent));
     }
 
     std::list<std::pair<const Node*, double>> findParents(const Node& curNode)
@@ -191,8 +188,7 @@ public:
                         break;
                 }
             dist = sqrt(pow(it->i - curNode.i,2) + pow(it->j - curNode.j,2));
-            if(it->g + dist < curNode.best_g)
-            {
+            if(it->g + dist < curNode.g)
                 if(it->g + dist >= curNode.interval_begin)
                 {
                     if(it->g + dist <= curNode.interval_end)
@@ -200,7 +196,6 @@ public:
                 }
                 else if(it->interval_end + dist >= curNode.interval_begin)
                     parents.push_front({&(*it), curNode.interval_begin});
-            }
         }
         return parents;
     }
@@ -219,7 +214,6 @@ public:
             dist = sqrt(pow(it->i - curNode.i,2) + pow(it->j - curNode.j,2));
             new_g = dist + curNode.best_g;
             if(new_g < it->best_g)
-            {
                 if(new_g >= it->interval_begin)
                 {
                     if(new_g <= it->interval_end)
@@ -234,7 +228,6 @@ public:
                     non_cons.modify(it, addParent(parent, it->interval_begin));
                     non_cons.modify(it, updateFG(it->interval_begin, parent));
                 }
-            }
         }
 
     }

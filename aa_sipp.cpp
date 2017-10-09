@@ -19,7 +19,7 @@ bool AA_SIPP::stopCriterion()
 {
     if(openSize == 0)
     {
-        std::cout << "OPEN list is empty! " << std::endl;
+        //std::cout << "OPEN list is empty! " << std::endl;
         return true;
     }
     return false;
@@ -243,15 +243,17 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
     sresult.pathInfo.resize(0);
     sresult.agents = Map.agents;
     sresult.agentsSolved = 0;
-    for(int i = 0; i < Map.agents; i++)
+    /*for(int i = 0; i < Map.agents; i++)
     {
         Map.addConstraint(Map.start_i[i], Map.start_j[i]);
         Map.addConstraint(Map.goal_i[i], Map.goal_j[i]);
-    }
+    }*/
     for(int numOfCurAgent = 0; numOfCurAgent < Map.agents; numOfCurAgent++)
     {
 
         ResultPathInfo result;
+        Map.addConstraint(Map.start_i[Map.agents - 1], Map.start_j[Map.agents - 1]);
+        Map.addConstraint(Map.goal_i[Map.agents - 1], Map.goal_j[Map.agents - 1]);
         Map.removeConstraint(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent]);
         Map.removeConstraint(Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
         if(numOfCurAgent+1==Map.agents)
@@ -264,9 +266,7 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
         if(findPath(numOfCurAgent, Map))
             constraints->addConstraints(sresult.pathInfo.back().sections);
         if(numOfCurAgent+1==Map.agents)
-        {
             std::cout<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" "<<result.pathlength - sresult.pathInfo.back().pathlength<<" \n";
-        }
         close.clear();
         for(int i = 0; i< Map.height; i++)
             open[i].clear();
@@ -388,8 +388,8 @@ bool AA_SIPP::findPath(int numOfCurAgent, const cMap &Map)
         QueryPerformanceCounter(&end);
         resultPath.time = static_cast<double long>(end.QuadPart-begin.QuadPart) / freq.QuadPart;
 #endif
-        std::cout<<numOfCurAgent<<" PATH NOT FOUND!\n";
-        sresult.pathfound = false;
+        //std::cout<<numOfCurAgent<<" PATH NOT FOUND!\n";
+        //sresult.pathfound = false;
         sresult.nodescreated += closeSize;
         sresult.numberofsteps += closeSize;
         resultPath.nodescreated = closeSize;
@@ -506,22 +506,20 @@ std::vector<conflict> AA_SIPP::CheckConflicts()
 
 void AA_SIPP::makePrimaryPath(Node curNode)
 {
-    hppath.clear();
     hppath.shrink_to_fit();
+    hppath.clear();
     std::list<Node> path;
     path.push_front(curNode);
     if(curNode.Parent != NULL)
     {
         curNode = *curNode.Parent;
         if(curNode.Parent != NULL)
-        {
             do
             {
                 path.push_front(curNode);
                 curNode = *curNode.Parent;
             }
             while(curNode.Parent != NULL);
-        }
         path.push_front(curNode);
     }
     for(auto it = path.begin(); it != path.end(); it++)
