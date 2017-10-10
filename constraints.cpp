@@ -70,7 +70,7 @@ void Constraints::updateSafeIntervals(const std::vector<std::pair<int, int> > &c
                     j++;
                     if(safe_intervals[i2][j2][j].second < interval.second)
                         safe_intervals[i2][j2].erase(safe_intervals[i2][j2].begin() + j);
-                    else
+                    else if(interval.second != CN_INFINITY)
                         safe_intervals[i2][j2][j].first = interval.second;
                 }
                 else if(safe_intervals[i2][j2][j].second < interval.second)
@@ -83,7 +83,8 @@ void Constraints::updateSafeIntervals(const std::vector<std::pair<int, int> > &c
                     new2.first = interval.second;
                     new2.second = safe_intervals[i2][j2][j].second;
                     safe_intervals[i2][j2].erase(safe_intervals[i2][j2].begin() + j);
-                    safe_intervals[i2][j2].insert(safe_intervals[i2][j2].begin() + j, new2);
+                    if(new2.first != CN_INFINITY)
+                        safe_intervals[i2][j2].insert(safe_intervals[i2][j2].begin() + j, new2);
                     safe_intervals[i2][j2].insert(safe_intervals[i2][j2].begin() + j, new1);
                 }
             }
@@ -96,7 +97,7 @@ void Constraints::updateSafeIntervals(const std::vector<std::pair<int, int> > &c
                 }
                 if(safe_intervals[i2][j2][j].second < interval.second)
                     safe_intervals[i2][j2].erase(safe_intervals[i2][j2].begin() + j);
-                else
+                else if(interval.second != CN_INFINITY)
                     safe_intervals[i2][j2][j].first = interval.second;
             }
         }
