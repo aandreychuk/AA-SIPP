@@ -41,4 +41,5 @@ HEADERS += \
     constraints.h \
     aa_sipp_o.h \
     constraints_o.h \
-    StatesContainer.h
+    StatesContainer.h \
+    LineOfSight.h

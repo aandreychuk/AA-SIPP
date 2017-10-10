@@ -1,6 +1,7 @@
 #ifndef multi_index_H
 #define multi_index_H
 #include "structs.h"
+#include "LineOfSight.h"
 #include <boost/multi_index_container.hpp>
 #include <boost/multi_index/member.hpp>
 #include <boost/multi_index/ordered_index.hpp>
@@ -43,6 +44,8 @@ typedef multi_index_container<
 class StatesContainer
 {
 public:
+    LineOfSight los;
+    const cMap* map;
     multi_index states;
     struct updateExpand
     {
@@ -187,14 +190,14 @@ public:
                     if(it == range.second)
                         break;
                 }
-            dist = sqrt(pow(it->i - curNode.i,2) + pow(it->j - curNode.j,2));
+            dist = sqrt(pow(it->i - curNode.i, 2) + pow(it->j - curNode.j, 2));
             if(it->g + dist < curNode.g)
                 if(it->g + dist >= curNode.interval_begin)
                 {
-                    if(it->g + dist <= curNode.interval_end)
+                    if(it->g + dist <= curNode.interval_end && los.checkLine(curNode.i,curNode.j,it->i,it->j,*map))
                         parents.push_back({&(*it), it->g + dist});
                 }
-                else if(it->interval_end + dist >= curNode.interval_begin)
+                else if(it->interval_end + dist >= curNode.interval_begin && los.checkLine(curNode.i,curNode.j,it->i,it->j,*map))
                     parents.push_front({&(*it), curNode.interval_begin});
         }
         return parents;
@@ -216,14 +219,14 @@ public:
             if(new_g < it->best_g)
                 if(new_g >= it->interval_begin)
                 {
-                    if(new_g <= it->interval_end)
+                    if(new_g <= it->interval_end && los.checkLine(curNode.i,curNode.j,it->i,it->j,*map))
                     {
                         non_cons.modify(it, addParent(parent, new_g));
                         if(it->g - new_g > CN_EPSILON)
                             non_cons.modify(it, updateFG(new_g, parent));
                     }
                 }
-                else if(curNode.interval_end + dist >= it->interval_begin)
+                else if(curNode.interval_end + dist >= it->interval_begin && los.checkLine(curNode.i,curNode.j,it->i,it->j,*map))
                 {
                     non_cons.modify(it, addParent(parent, it->interval_begin));
                     non_cons.modify(it, updateFG(it->interval_begin, parent));

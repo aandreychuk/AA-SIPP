@@ -21,7 +21,6 @@ private:
     Node findMin(int size);
     bool stopCriterion();
     double calculateDistanceFromCellToCell(double start_i, double start_j, double fin_i, double fin_j);
-    bool lineOfSight(int i1, int j1, int i2, int j2, const cMap &map);
     void findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &succs, int numOfCurAgent);
     void makePrimaryPath(Node curNode);
     void makeSecondaryPath(Node curNode);

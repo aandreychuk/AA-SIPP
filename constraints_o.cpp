@@ -114,6 +114,11 @@ void Constraints_o::updateSafeIntervals(const std::vector<std::pair<int, int> > 
     }
 }
 
+void Constraints_o::removeSafeIntervals(int i, int j)
+{
+    safe_intervals[i][j].clear();
+}
+
 std::vector<std::pair<int,int>> Constraints_o::findConflictCells(Node begin, Node end)
 {
     std::vector<std::pair<int,int>> cells(0);

@@ -13,84 +13,6 @@ AA_SIPP_O::~AA_SIPP_O()
 {
 }
 
-
-bool AA_SIPP_O::lineOfSight(int i1, int j1, int i2, int j2, const cMap &map)
-{
-    int delta_i = std::abs(i1 - i2);
-    int delta_j = std::abs(j1 - j2);
-    int step_i = (i1 < i2 ? 1 : -1);
-    int step_j = (j1 < j2 ? 1 : -1);
-    int error = 0;
-    int i = i1;
-    int j = j1;
-    int sep_value = delta_i*delta_i + delta_j*delta_j;
-    if(delta_i == 0)
-    {
-        for(; j != j2; j += step_j)
-            if(map.CellIsObstacle(i, j))
-                return false;
-    }
-    else if(delta_j == 0)
-    {
-        for(; i != i2; i += step_i)
-            if(map.CellIsObstacle(i, j))
-                return false;
-    }
-    else if(delta_i > delta_j)
-    {
-        for(; i != i2; i += step_i)
-        {
-            if(map.CellIsObstacle(i, j))
-                return false;
-            if(map.CellIsObstacle(i, j + step_j))
-                return false;
-            error += delta_j;
-            if(error > delta_i)
-            {
-                if(((error << 1) - delta_i - delta_j)*((error << 1) - delta_i - delta_j) < sep_value)
-                    if(map.CellIsObstacle(i + step_i, j))
-                        return false;
-                if((3*delta_i - ((error << 1) - delta_j))*(3*delta_i - ((error << 1) - delta_j)) < sep_value)
-                    if(map.CellIsObstacle(i, j + 2*step_j))
-                        return false;
-                j += step_j;
-                error -= delta_i;
-            }
-        }
-        if(map.CellIsObstacle(i, j))
-            return false;
-        if(map.CellIsObstacle(i, j + step_j))
-            return false;
-    }
-    else
-    {
-        for(; j != j2; j += step_j)
-        {
-            if(map.CellIsObstacle(i, j))
-                return false;
-            if(map.CellIsObstacle(i + step_i, j))
-                return false;
-            error += delta_i;
-            if(error > delta_j)
-            {
-                if(((error << 1) - delta_i - delta_j)*((error << 1) - delta_i - delta_j) < sep_value)
-                    if(map.CellIsObstacle(i, j + step_j))
-                        return false;
-                if((3*delta_j - ((error << 1) - delta_i))*(3*delta_j - ((error << 1) - delta_i)) < sep_value)
-                    if(map.CellIsObstacle(i + 2*step_i, j))
-                        return false;
-                i += step_i;
-                error -= delta_j;
-            }
-        }
-        if(map.CellIsObstacle(i, j))
-            return false;
-        if(map.CellIsObstacle(i + step_i, j))
-            return false;
-    }
-    return true;
-}
-
 double AA_SIPP_O::calculateDistanceFromCellToCell(double start_i, double start_j, double fin_i, double fin_j)
 {
     return sqrt(double((start_i - fin_i)*(start_i - fin_i) + (start_j - fin_j)*(start_j - fin_j)));
@@ -107,6 +29,8 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
     for(int i = 0; i < Map.height; i++)
         for(int j = 0; j < Map.width; j++)
         {
+            if(Map.CellIsObstacle(i,j))
+                constraints.removeSafeIntervals(i,j);
             begins = constraints.getSafeBegins(i, j);
             g = calculateDistanceFromCellToCell(i, j, Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent]);
             h = calculateDistanceFromCellToCell(i, j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
@@ -160,6 +84,7 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
             constraints.addConstraints(sresult.pathInfo[i].sections);
     ResultPathInfo resultPath;
     states.clear();
+    states.map = &Map;
     initStates(Map.agents - 1, Map);
     Node curNode(states.getMin());
     Node newNode;
@@ -167,11 +92,20 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
     int numOfCurAgent = Map.agents -1;
     int expanded(0);
     int checked(0);
+    LineOfSight los;
 
     while(curNode.g < CN_INFINITY)//if curNode.g=CN_INFINITY => there are only unreachable non-consistent states => path cannot be found
     {
-        checked++;
         newNode = curNode;
+        checked++;
+        if(newNode.Parent->i == Map.start_i[Map.agents - 1] && newNode.Parent->j == Map.start_j[Map.agents - 1])
+            if(!los.checkLine(newNode.i,newNode.j,newNode.Parent->i,newNode.Parent->j,Map))
+            {
+                newNode.g = CN_INFINITY;
+                states.update(newNode,false);
+                curNode = states.getMin();
+                continue;
+            }
         if(newNode.g < newNode.best_g)
         {
             newNode.g = constraints.findEAT(newNode);

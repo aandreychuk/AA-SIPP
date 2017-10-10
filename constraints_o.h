@@ -20,6 +20,7 @@ public:
     std::vector<std::pair<int,int>> findConflictCells(Node begin, Node end);
     void updateSafeIntervals(const std::vector<std::pair<int,int>> &cells, section sec, bool goal);
     void addConstraints(const std::vector<Node> &sections);
+    void removeSafeIntervals(int i, int j);
     std::vector<std::pair<double, double> > findIntervals(Node curNode, std::vector<double> &EAT, StatesContainer &states, int w);
     std::pair<double,double> getSafeInterval(int i, int j, int n) {return safe_intervals[i][j][n];}
     std::vector<std::pair<double,double>> getSafeBegins(int i, int j){return safe_intervals[i][j];}
