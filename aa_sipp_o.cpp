@@ -40,7 +40,6 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
             {
                 n.interval_begin = begins[k].first;
                 n.interval_end = begins[k].second;
-                n.parents.clear();
                 if(i == Map.start_i[numOfCurAgent] && j == Map.start_j[numOfCurAgent])
                 {
                     if(k==0)
@@ -49,6 +48,7 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
                     n.F = CN_INFINITY;
                     n.Parent = nullptr;
                     n.consistent = 2;
+                    n.parents.clear();
                     states.insert(n);
                     continue;
                 }
@@ -57,17 +57,18 @@ void AA_SIPP_O::initStates(int numOfCurAgent, const cMap &Map)
                     n.g = n.interval_begin;
                     n.F = n.g + n.h;
                 }
-                n.parents.push_back({parent, n.g});
+                n.parents={parent, n.g};
                 if(n.g <= n.interval_end)
                     states.insert(n);
             }
         }
     h = (calculateDistanceFromCellToCell(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent], Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]));
-    n = Node(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,CN_INFINITY,1);
+    begins = constraints.getSafeBegins(i, j);
+    n = Node(Map.start_i[numOfCurAgent], Map.start_j[numOfCurAgent],h,0,h,true,0,begins[0].second,1);
     states.expand(n);
 }
 
-ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
+ResultPathInfo AA_SIPP_O::findPath(cLogger *Log, const SearchResult &sresult, const cMap &Map)
 {
 
 #ifdef __linux__
@@ -79,9 +80,10 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
     QueryPerformanceFrequency(&freq);
 #endif
     constraints.init(Map.width, Map.height);
+    constraints.collision_obstacles.resize(Map.agents,0);
     for(int i=0; i<sresult.pathInfo.size(); i++)
         if(sresult.pathInfo[i].pathfound)
-            constraints.addConstraints(sresult.pathInfo[i].sections);
+            constraints.addConstraints(sresult.pathInfo[i].sections, i);
     ResultPathInfo resultPath;
     states.clear();
     states.map = &Map;
@@ -109,11 +111,16 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
         if(newNode.g < newNode.best_g)
         {
             newNode.g = constraints.findEAT(newNode);
-            states.update(newNode, bool(newNode.g < newNode.best_g));
-            newNode.best_g = newNode.g;
-            newNode.best_Parent = newNode.Parent;
-            curNode = states.getMin();
+            if(newNode.g < newNode.best_g)
+            {
+                newNode.best_g = newNode.g;
+                newNode.best_Parent = newNode.Parent;
+                states.update(newNode, true);
+            }
+            else
+                states.update(newNode, false);
         }
+        curNode = states.getMin();
         if((newNode.best_g + newNode.h - curNode.F) < CN_EPSILON)
         {
             expanded++;
@@ -173,7 +180,14 @@ ResultPathInfo AA_SIPP_O::findPath(const SearchResult &sresult, const cMap &Map)
         resultPath.pathlength = 0;
         resultPath.numberofsteps = closeSize;
     }
-    std::cout<<checked<<" ";
+    std::pair<std::vector<Node>,std::vector<Node>> openclosed=states.getExpanded();
+    //Log->writeToLogOpenClose(openclosed.first,openclosed.second);
+    int obs(0);
+    for(int k=0; k<Map.agents; k++)
+        obs+=bool(constraints.collision_obstacles[k]);
+    std::cout<<obs<<" "<<expanded<<" "<<checked<<" ";
+    std::ofstream out("optimal_vs_point_warehouse.txt",std::ios::app);
+    out<<obs<<" "<<expanded<<" "<<checked<<" ";
     states.printStats();
     return resultPath;
 }

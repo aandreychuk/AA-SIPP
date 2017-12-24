@@ -26,6 +26,8 @@ public:
     void writeToLogSummary(const SearchResult &sr);
     void writeToLogPath(const SearchResult &sresult);
     void writeToLogMap(const cMap &map, const SearchResult &sresult);
+    void writeToLogOpenClose(const std::vector<Node> &open, const std::vector<Node>& close);
+
 };
 
 #endif

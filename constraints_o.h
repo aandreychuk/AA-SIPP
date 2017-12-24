@@ -5,6 +5,7 @@
 #include <math.h>
 #include <unordered_map>
 #include "gl_const.h"
+#include "Vector2D.h"
 #include "structs.h"
 #include <algorithm>
 #include <iostream>
@@ -19,7 +20,7 @@ public:
     double findEAT(const Node& curNode);
     std::vector<std::pair<int,int>> findConflictCells(Node begin, Node end);
     void updateSafeIntervals(const std::vector<std::pair<int,int>> &cells, section sec, bool goal);
-    void addConstraints(const std::vector<Node> &sections);
+    void addConstraints(const std::vector<Node> &sections, int num);
     void removeSafeIntervals(int i, int j);
     std::vector<std::pair<double, double> > findIntervals(Node curNode, std::vector<double> &EAT, StatesContainer &states, int w);
     std::pair<double,double> getSafeInterval(int i, int j, int n) {return safe_intervals[i][j][n];}
@@ -29,6 +30,7 @@ public:
         this->safe_intervals = safe_intervals;
         this->constraints = constraints;
     }
+    std::vector<int> collision_obstacles;
 protected:
     std::pair<double,double> countInterval(section sec, Node curNode);
     std::vector<std::vector<std::vector<std::pair<double,double>>>> safe_intervals;
@@ -37,6 +39,10 @@ protected:
     double dist(Node A, Node B){return sqrt(pow(A.i - B.i, 2) + pow(A.j - B.j, 2));}
     double dist(Point A, Point B){return sqrt(pow(A.i - B.i, 2) + pow(A.j - B.j, 2));}
     double minDist(Point A, Point C, Point D);
+    double dist(Point A, Point C, Point D)
+    {
+        return fabs((C.i-D.i)*A.j+(D.j-C.j)*A.i+(C.j*D.i-D.j*C.i))/sqrt(pow(C.i-D.i,2)+pow(C.j-D.j,2));
+    }
 };
 
 #endif // Constraints_o_H

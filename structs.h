@@ -20,6 +20,7 @@ struct constraint
     double j;
     double g;
     bool goal;
+    int agent;
 };
 
 struct movement
@@ -57,6 +58,7 @@ struct section
     int j2;
     double g1;
     double g2;//is needed for goal and wait actions
+    int agent;
 
     bool operator== (const section &comp)   const{return (i1==comp.i1 && j1==comp.j1 && g1==comp.g1);}
     section(int i1=-1, int j1=-1, int g1=-1, int i2=-1, int j2=-1, int g2=-1):i1(i1),j1(j1),g1(g1),i2(i2),j2(j2),g2(g2){}

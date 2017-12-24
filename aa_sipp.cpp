@@ -28,7 +28,7 @@ bool AA_SIPP::stopCriterion()
 void AA_SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node> &succs, int numOfCurAgent)
 {
     Node newNode;
-    std::vector<double> EAT;
+    std::vector<double> EAT, exEAT;
     std::vector<std::pair<double, double>> intervals;
     double h_value;
     auto parent = &(close.find(curNode.i*Map.width + curNode.j)->second);
@@ -36,7 +36,8 @@ void AA_SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node
     {
         for(int j = -1; j <= +1; j++)
         {
-            //if(((i == 0 && j != 0) || (i != 0 && j == 0)) && Map.CellOnGrid(curNode.i + i, curNode.j + j) && Map.CellIsTraversable(curNode.i + i, curNode.j + j))
+            //if((numOfCurAgent+1==Map.agents && (((i == 0 && j != 0) || (i != 0 && j == 0)) && Map.CellOnGrid(curNode.i + i, curNode.j + j) && Map.CellIsTraversable(curNode.i + i, curNode.j + j)))
+            //|| (numOfCurAgent+1<Map.agents && ((i != 0 || j != 0) && Map.CellOnGrid(curNode.i + i, curNode.j + j) && Map.CellIsTraversable(curNode.i + i, curNode.j + j))))
             if((i != 0 || j != 0) && Map.CellOnGrid(curNode.i + i, curNode.j + j) && Map.CellIsTraversable(curNode.i + i, curNode.j + j))
             {
                 if(i*j != 0)
@@ -45,10 +46,13 @@ void AA_SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node
                 newNode.i = curNode.i + i;
                 newNode.j = curNode.j + j;
                 if(i!=0 && j!=0)
-                    newNode.g = curNode.g + sqrt(2);
+                    newNode.g = curNode.g + sqrt(2.0);
                 else
                     newNode.g = curNode.g + 1.0;
                 newNode.Parent = parent;
+                //if(numOfCurAgent+1==Map.agents)
+                //    h_value=weight*(abs(newNode.i-Map.goal_i[numOfCurAgent])+abs(newNode.j-Map.goal_j[numOfCurAgent]));
+                //else
                 h_value = weight*calculateDistanceFromCellToCell(newNode.i, newNode.j, Map.goal_i[numOfCurAgent], Map.goal_j[numOfCurAgent]);
                 intervals = constraints->findIntervals(newNode, EAT, close, Map.width);
                 for(int k = 0; k < intervals.size(); k++)
@@ -58,6 +62,8 @@ void AA_SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node
                     newNode.F = newNode.g + h_value;
                     succs.push_front(newNode);
                 }
+                if(numOfCurAgent+1<Map.agents)
+                {
                 newNode = resetParent(newNode, curNode, Map);
                 if(newNode.Parent->i != parent->i || newNode.Parent->j != parent->j)
                 {
@@ -70,6 +76,8 @@ void AA_SIPP::findSuccessors(const Node curNode, const cMap &Map, std::list<Node
                         succs.push_front(newNode);
                     }
                 }
+                }
+
             }
         }
     }
@@ -162,18 +170,18 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
     QueryPerformanceCounter(&begin);
     QueryPerformanceFrequency(&freq);
 #endif
-    constraints = new SectionConstraints(Map.width, Map.height);
+    constraints = new PointConstraints(Map.width, Map.height);
+    constraints->collision_obstacles.resize(Map.agents,0);
     sresult.pathInfo.resize(0);
     sresult.agents = Map.agents;
     sresult.agentsSolved = 0;
-    /*for(int i = 0; i < Map.agents; i++)
+    for(int i = 0; i < Map.agents; i++)
     {
         Map.addConstraint(Map.start_i[i], Map.start_j[i]);
-        Map.addConstraint(Map.goal_i[i], Map.goal_j[i]);
-    }*/
+        //Map.addConstraint(Map.goal_i[i], Map.goal_j[i]);
+    }
     for(int numOfCurAgent = 0; numOfCurAgent < Map.agents; numOfCurAgent++)
     {
-
         ResultPathInfo result;
         Map.addConstraint(Map.start_i[Map.agents - 1], Map.start_j[Map.agents - 1]);
         Map.addConstraint(Map.goal_i[Map.agents - 1], Map.goal_j[Map.agents - 1]);
@@ -182,14 +190,56 @@ SearchResult AA_SIPP::startSearch(cLogger *Log, cMap &Map)
         if(numOfCurAgent+1==Map.agents)
         {
             AA_SIPP_O last = AA_SIPP_O(weight,breakingties);
-            result = last.findPath(sresult, Map);
+            result = last.findPath(Log, sresult, Map);
+            //sresult.pathInfo.push_back(result);
+            std::cout<<result.time<<" "<<result.pathlength<<"  Optimal\n";
+            //std::ofstream out("optimal_vs_point_warehouse.txt",std::ios::app);
+            //out<<result.time<<" "<<result.pathlength<<"  ";
+            //out.close();
             sresult.pathInfo.push_back(result);
-            std::cout<<result.time<<" "<<result.pathlength<<"  ";
+            std::vector<conflict> confs = CheckConflicts();
+            for(int i = 0; i < confs.size(); i++)
+                std::cout<<confs[i].i<<" "<<confs[i].j<<" "<<confs[i].g<<" "<<confs[i].agent1<<" "<<confs[i].agent2<<"\n";
+            Log->writeToLogPath(sresult);
+            sresult.pathInfo.pop_back();
         }
-        if(findPath(numOfCurAgent, Map))
-            constraints->addConstraints(sresult.pathInfo.back().sections);
+        if(findPath(numOfCurAgent, Map) && numOfCurAgent+1<Map.agents)
+            constraints->addConstraints(sresult.pathInfo.back().sections, numOfCurAgent);
         if(numOfCurAgent+1==Map.agents)
-            std::cout<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" "<<result.pathlength - sresult.pathInfo.back().pathlength<<" \n";
+        {
+            int obstacles=0;
+            for(int k=0; k<Map.agents; k++)
+                obstacles+=bool(constraints->collision_obstacles[k]);
+            //std::cout<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" "<<obstacles<<" Point\n";
+            //std::ofstream out("optimal_vs_point_warehouse.txt",std::ios::app);
+            //out<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" "<<obstacles<<"\n";
+            //out.close();
+            /*sresult.pathInfo.pop_back();
+            delete constraints;
+            constraints = new SectionConstraints(Map.width,Map.height);
+            for(int i=0; i<sresult.pathInfo.size(); i++)
+                if(sresult.pathInfo[i].pathfound)
+                    constraints->addConstraints(sresult.pathInfo[i].sections);
+            close.clear();
+            for(int i = 0; i< Map.height; i++)
+                open[i].clear();
+            open.clear();
+            findPath(numOfCurAgent, Map);
+            std::cout<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" Section\n";
+            sresult.pathInfo.pop_back();
+            delete constraints;
+            constraints = new VelocityConstraints(Map.width,Map.height);
+            for(int i=0; i<sresult.pathInfo.size(); i++)
+                if(sresult.pathInfo[i].pathfound)
+                    constraints->addConstraints(sresult.pathInfo[i].sections);
+            close.clear();
+            for(int i = 0; i< Map.height; i++)
+                open[i].clear();
+            open.clear();
+            findPath(numOfCurAgent, Map);
+            std::cout<<sresult.pathInfo.back().nodescreated<<" "<<sresult.pathInfo.back().numberofsteps<<" "<<sresult.pathInfo.back().time<<" "<<sresult.pathInfo.back().pathlength<<" Velocity\n";
+            */
+        }
         close.clear();
         for(int i = 0; i< Map.height; i++)
             open[i].clear();
@@ -430,7 +480,6 @@ std::vector<conflict> AA_SIPP::CheckConflicts()
 
 void AA_SIPP::makePrimaryPath(Node curNode)
 {
-    hppath.shrink_to_fit();
     hppath.clear();
     std::list<Node> path;
     path.push_front(curNode);

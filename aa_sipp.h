@@ -13,8 +13,7 @@ public:
     AA_SIPP(double weight, bool breakingties, int constraints_type);
     ~AA_SIPP();
     SearchResult startSearch(cLogger *Log, cMap &Map);
-
-    SectionConstraints *constraints;
+    Constraints *constraints;
 private:
 
     void addOpen(Node &newNode);

@@ -13,7 +13,7 @@ public:
 
     AA_SIPP_O(double weight, bool breakingties);
     ~AA_SIPP_O();
-    ResultPathInfo findPath(const SearchResult &sresult, const cMap &Map);
+    ResultPathInfo findPath(cLogger *Log, const SearchResult &sresult, const cMap &Map);
     void copy_constraints(const SectionConstraints &cons){constraints.copy(cons.safe_intervals, cons.constraints);}
 
 private:

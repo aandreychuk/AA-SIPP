@@ -15,20 +15,21 @@ class Constraints
 public:
     Constraints(int width, int height);
     virtual ~Constraints(){}
-    std::vector<std::pair<int,int>> findConflictCells(Node cur);
+    std::vector<std::pair<int,int>> findConflictCells(Node cur, Node parent);
     void updateSafeIntervals(const std::vector<std::pair<int,int>> &cells, section sec, bool goal);
     std::vector<std::pair<double, double> > getSafeIntervals(Node curNode, const std::unordered_multimap<int, Node> &close, int w);
-    virtual void addConstraints(const std::vector<Node> &sections) = 0;
+    virtual void addConstraints(const std::vector<Node> &sections, int num) = 0;
     virtual std::vector<std::pair<double, double> > findIntervals(Node curNode, std::vector<double> &EAT, const std::unordered_multimap<int, Node> &close, int w) = 0;
     std::pair<double,double> getSafeInterval(int i, int j, int n) {return safe_intervals[i][j][n];}
     std::vector<std::vector<std::vector<std::pair<double,double>>>> safe_intervals;
+    std::vector<int> collision_obstacles;
 };
 
 class PointConstraints : public Constraints
 {
 public:
     PointConstraints(int width, int height);
-    void addConstraints(const std::vector<Node> &sections);
+    void addConstraints(const std::vector<Node> &sections, int num);
     std::vector<std::pair<double, double> > findIntervals(Node curNode, std::vector<double> &EAT, const std::unordered_multimap<int, Node> &close, int w);
 private:
     std::vector<std::vector<std::vector<constraint>>> constraints;
@@ -39,7 +40,7 @@ class VelocityConstraints : public Constraints
 {
 public:
     VelocityConstraints(int width, int height);
-    void addConstraints(const std::vector<Node> &sections);
+    void addConstraints(const std::vector<Node> &sections, int num);
     std::vector<std::vector<std::vector<section>>> constraints;
     std::vector<std::pair<double, double> > findIntervals(Node curNode, std::vector<double> &EAT, const std::unordered_multimap<int, Node> &close, int w);
 private:
@@ -65,6 +66,10 @@ private:
             return sqrt(pow(A.i-D.i,2)+pow(A.j-D.j,2));
         else
             return fabs((C.i-D.i)*A.j+(D.j-C.j)*A.i+(C.j*D.i-D.j*C.i))/sqrt(pow(C.i-D.i,2)+pow(C.j-D.j,2));
+    }
+    double dist(Point A, Point C, Point D)
+    {
+        return fabs((C.i-D.i)*A.j+(D.j-C.j)*A.i+(C.j*D.i-D.j*C.i))/sqrt(pow(C.i-D.i,2)+pow(C.j-D.j,2));
     }
 };
 

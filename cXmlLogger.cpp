@@ -58,7 +58,6 @@ bool cXmlLogger::getLog(const char *FileName)
     TiXmlElement* path = new TiXmlElement(CNS_TAG_PATH);
     log->LinkEndChild(path);
 
-    if (loglevel >= CN_LOGLVL_MED)
     {
         TiXmlElement *lowlevel = new TiXmlElement(CNS_TAG_LOWLEVEL);
         log->LinkEndChild(lowlevel);
@@ -129,7 +128,7 @@ void cXmlLogger::writeToLogPath(const SearchResult &sresult)
 
     TiXmlElement *agent, *summary, *path, *lplevel, *hplevel, *node;
 
-    for(int i = 0; i < sresult.agents; i++)
+    for(int i = sresult.agents-1; i < sresult.agents; i++)
     {
         agent = new TiXmlElement(CNS_TAG_AGENT);
         agent->SetAttribute(CNS_TAG_ATTR_NUM,i);
@@ -266,4 +265,55 @@ void cXmlLogger::writeToLogMap(const cMap &map, const SearchResult &sresult)
         element->LinkEndChild(msg);
     }
     delete [] curLine;
+}
+
+void cXmlLogger::writeToLogOpenClose(const std::vector<Node> &open, const std::vector<Node>& close)
+{
+    int iterate = 0;
+    TiXmlElement *element = new TiXmlElement(CNS_TAG_STEP);
+    TiXmlNode *child = 0, *lowlevel = doc->FirstChild(CNS_TAG_ROOT);
+    lowlevel = lowlevel -> FirstChild(CNS_TAG_LOG) -> FirstChild(CNS_TAG_LOWLEVEL);
+
+    while (child = lowlevel -> IterateChildren(child))
+        iterate++;
+
+    element -> SetAttribute(CNS_TAG_ATTR_NUM, iterate);
+    lowlevel -> InsertEndChild(*element);
+    lowlevel = lowlevel -> LastChild();
+
+    element = new TiXmlElement (CNS_TAG_OPEN);
+    lowlevel -> InsertEndChild(*element);
+    child = lowlevel -> LastChild();
+
+    for (auto it  = open.begin(); it != open.end(); ++it) {
+        element = new TiXmlElement(CNS_TAG_NODE);
+        element -> SetAttribute(CNS_TAG_ATTR_X, it->j);
+        element -> SetAttribute(CNS_TAG_ATTR_Y, it->i);
+        element -> SetDoubleAttribute(CNS_TAG_ATTR_F, it->F);
+        element -> SetDoubleAttribute(CNS_TAG_ATTR_G, it->g);
+        element -> SetDoubleAttribute("parents", it->parents.size());
+
+        //if (it->g > 0) {
+        //    element -> SetAttribute(CNS_TAG_ATTR_PARX, it->Parent->j);
+        //    element -> SetAttribute(CNS_TAG_ATTR_PARY, it->Parent->i);
+        //}
+        child -> InsertEndChild(*element);
+    }
+
+    element = new TiXmlElement (CNS_TAG_CLOSE);
+    lowlevel -> InsertEndChild(*element);
+    child = lowlevel -> LastChild();
+
+    for (auto it  = close.begin(); it != close.end(); ++it) {
+        element = new TiXmlElement(CNS_TAG_NODE);
+        element -> SetAttribute(CNS_TAG_ATTR_X, it->j);
+        element -> SetAttribute(CNS_TAG_ATTR_Y, it->i);
+        element -> SetDoubleAttribute(CNS_TAG_ATTR_F, it->F);
+        element -> SetDoubleAttribute(CNS_TAG_ATTR_G, it->best_g);
+        if (it->g > 0) {
+            element -> SetAttribute(CNS_TAG_ATTR_PARX, it->Parent->j);
+            element -> SetAttribute(CNS_TAG_ATTR_PARY, it->Parent->i);
+        }
+        child -> InsertEndChild(*element);
+    }
 }

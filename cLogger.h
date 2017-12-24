@@ -18,5 +18,6 @@ public:
     virtual void writeToLogSummary(const SearchResult &sr)=0;
     virtual void writeToLogPath(const SearchResult &sresult)=0;
     virtual void writeToLogMap(const cMap &map, const SearchResult &sresult)=0;
+    virtual void writeToLogOpenClose(const std::vector<Node> &open, const std::vector<Node>& close)=0;
 };
 #endif

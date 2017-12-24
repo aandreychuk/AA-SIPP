@@ -30,14 +30,13 @@ typedef multi_index_container<
                 Node,
                 member<Node, bool,   &Node::expanded>,
                 member<Node, double, &Node::F>,
-                member<Node, double, &Node::h>
+                member<Node, double, &Node::g>
             >
         >,
         ordered_non_unique<
             tag<by_cons>,
             member<Node, int, &Node::consistent>
         >
-
     >
 > multi_index;
 
@@ -47,6 +46,7 @@ public:
     LineOfSight los;
     const cMap* map;
     multi_index states;
+    std::vector<int> divisors;
     struct updateExpand
     {
         updateExpand(){}
@@ -110,6 +110,18 @@ public:
         const Node* parent;
     };
 
+    struct cutParents
+    {
+        cutParents(double best_g):best_g(best_g){}
+        void operator()(Node& n)
+        {
+            while(n.parents.back().second >= best_g)
+                n.parents.pop_back();
+        }
+    private:
+        double best_g;
+    };
+
 
     struct pop_parent
     {
@@ -145,6 +157,8 @@ public:
 
     void insert(const Node& curNode)
     {
+        if(curNode.F>=CN_INFINITY)
+            std::cout<<curNode.i<<" "<<curNode.j<<" "<<curNode.g<<" "<<curNode.interval_begin<<" "<<curNode.interval_end<<" insert\n";
         states.insert(curNode);
     }
 
@@ -163,10 +177,10 @@ public:
             for(auto pit = parents.begin(); pit!= parents.end(); pit++)
                 ij.modify(it, addParent(&(*pit->first), pit->second));
         }
-        if(!it->parents.empty() && it->parents.begin()->second < std::min(curNode.g, curNode.best_g))
-            ij.modify(it, updateFG(it->parents.begin()->second, it->parents.begin()->first));
         else if(best)
-            ij.modify(it, updateFG(curNode.g, curNode.Parent));
+            ij.modify(it, cutParents(curNode.best_g));
+        if(!it->parents.empty() && it->parents.begin()->second < curNode.best_g)
+            ij.modify(it, updateFG(it->parents.begin()->second, it->parents.begin()->first));
         else
             ij.modify(it, updateFG(curNode.best_g, curNode.best_Parent));
     }
@@ -190,6 +204,8 @@ public:
                     if(it == range.second)
                         break;
                 }
+            if(hasMiddleState(it->i, it->j, curNode.i, curNode.j))
+                continue;
             dist = sqrt(pow(it->i - curNode.i, 2) + pow(it->j - curNode.j, 2));
             if(it->g + dist < curNode.g)
                 if(it->g + dist >= curNode.interval_begin)
@@ -202,7 +218,19 @@ public:
         }
         return parents;
     }
-
+    int gcd (int a, int b)
+    {
+        return b ? gcd(b, a % b) : a;
+    }
+    bool hasMiddleState(int i1, int j1, int i2, int j2)
+    {
+        int di(abs(i1-i2)),dj(abs(j1-j2));
+        if(di==1 || dj==1)
+            return false;
+        else if(di==0 || dj==0 || gcd(di,dj)>1)
+            return true;
+        return false;
+    }
     void updateNonCons(const Node& curNode)
     {
         typedef multi_index::index<by_ij>::type ij_index;
@@ -214,6 +242,8 @@ public:
         double dist, new_g;
         for(auto it = range.first; it != range.second; it++)
         {
+            if(hasMiddleState(it->i, it->j, curNode.i, curNode.j))
+                continue;
             dist = sqrt(pow(it->i - curNode.i,2) + pow(it->j - curNode.j,2));
             new_g = dist + curNode.best_g;
             if(new_g < it->best_g)
@@ -259,6 +289,25 @@ public:
         typedef multi_index::index<by_cons>::type cons_index;
         cons_index & cons = states.get<by_cons>();
         std::cout<<cons.count(0)<<" "<<cons.count(1)<<" "<<cons.count(2)<<" ";
+        std::ofstream out("optimal_vs_point_warehouse.txt",std::ios::app);
+        out<<cons.count(0)<<" "<<cons.count(1)<<" "<<cons.count(2)<<" ";
+        auto range = cons.equal_range(0);
+        //for(auto it=range.first;it!=range.second; it++)
+        //    std::cout<<it->i<<" "<<it->j<<" "<<it->g<<" "<<it->F<<" not_checked\n";
+    }
+
+    std::pair<std::vector<Node>,std::vector<Node>>  getExpanded()
+    {
+        std::vector<Node> closed(0), open(0);
+        typedef multi_index::index<by_cons>::type cons_index;
+        cons_index & cons = states.get<by_cons>();
+        auto range = cons.equal_range(1);
+        for(auto it=range.first; it!=range.second; it++)
+            closed.push_back(*it);
+        range = cons.equal_range(2);
+        for(auto it=range.first; it!=range.second; it++)
+            open.push_back(*it);
+        return {open, closed};
     }
 
     void clear()
